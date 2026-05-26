@@ -156,19 +156,51 @@ async function fetchYahooPrice(ticker) {
   throw lastError;
 }
 
+// Devizaárfolyamok lekérése Yahoo-tól (USD→HUF, EUR→HUF)
+async function fetchFxRates() {
+  const pairs = ["USDHUF=X", "EURHUF=X", "GBPHUF=X"];
+  const rates = { USD: 1, EUR: 1, GBP: 1, HUF: 1 };
+  for (const pair of pairs) {
+    try {
+      const data = await fetchYahooPrice(pair);
+      const currency = pair.replace("HUF=X", "");
+      rates[currency] = data.price;
+      appLog.info(`✓ ${currency}/HUF = ${data.price}`);
+    } catch (e) {
+      appLog.warn(`✗ FX lekérés sikertelen: ${pair}`, e.message);
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return rates;
+}
+
 async function refreshAllPrices(investments, onProgress) {
   const withTicker = investments.filter(i => i.ticker?.trim());
-  const results = new Map();
+  const results = new Map(); // ticker → { priceInOrigCurrency, priceInInvCurrency }
   const errors = [];
 
+  // 1. Devizaárfolyamok lekérése először
+  onProgress?.("Devizaárfolyamok...");
+  const fxRates = await fetchFxRates();
+  appLog.info(`FX rates: USD=${fxRates.USD}, EUR=${fxRates.EUR}`);
+
+  // 2. Részvényárak lekérése
   for (let i = 0; i < withTicker.length; i++) {
     const inv = withTicker[i];
     onProgress?.(`${inv.ticker} (${i + 1}/${withTicker.length})`);
     try {
       const data = await fetchYahooPrice(inv.ticker);
-      results.set(inv.ticker.toUpperCase(), data.price);
+      // Az ár Yahoo devizájában jön (USD, EUR, stb.)
+      // Ha a befektetés HUF-ban van nyilvántartva, váltjuk át
+      let finalPrice = data.price;
+      if (inv.currency === "HUF" && data.currency && data.currency !== "HUF") {
+        const rate = fxRates[data.currency] || 1;
+        finalPrice = data.price * rate;
+        appLog.info(`✓ ${inv.ticker}: ${data.price} ${data.currency} × ${rate} = ${finalPrice.toFixed(0)} HUF`);
+      }
+      results.set(inv.ticker.toUpperCase(), finalPrice);
     } catch (e) {
-      console.warn(`[PriceRefresh] ${inv.ticker} hiba:`, e.message);
+      appLog.warn(`[PriceRefresh] ${inv.ticker} hiba:`, e.message);
       errors.push(inv.ticker);
     }
     if (i < withTicker.length - 1) await new Promise(r => setTimeout(r, 400));
