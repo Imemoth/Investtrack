@@ -392,6 +392,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState(null);
   const [showLog, setShowLog] = useState(false);
+  const [chartMode, setChartMode] = useState("category"); // "category" | "position"
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(investments));
@@ -449,7 +450,27 @@ export default function App() {
       const v = investments.filter(i => i.category === c).reduce((s, i) => s + i.currentPrice * i.quantity, 0);
       return { label: c, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: CATEGORY_COLORS[c] };
     }).filter(d => d.value > 0);
-    return { totalCost, totalValue, totalPnL, totalPct, catBreakdown };
+
+    // Pozíció szerinti breakdown – minden részvény egyedi szín
+    const POSITION_PALETTE = [
+      "#6EE7B7","#93C5FD","#FDE68A","#F9A8D4","#FCA5A5","#C4B5FD","#6EE7F7",
+      "#86EFAC","#FCD34D","#FDA4AF","#A5B4FC","#67E8F9","#BEF264","#FDBA74",
+    ];
+    const posBreakdown = [...investments]
+      .map((inv, idx) => {
+        const v = inv.currentPrice * inv.quantity;
+        return {
+          label: inv.ticker || inv.name,
+          fullName: inv.name,
+          value: v,
+          pct: totalValue > 0 ? (v / totalValue) * 100 : 0,
+          color: POSITION_PALETTE[idx % POSITION_PALETTE.length],
+        };
+      })
+      .filter(d => d.value > 0)
+      .sort((a, b) => b.value - a.value);
+
+    return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown };
   }, [investments]);
 
   // ── Filtered & sorted ────
@@ -585,24 +606,60 @@ export default function App() {
           ))}
         </div>
 
-        {/* Chart + breakdown */}
-        {stats.catBreakdown.length > 0 && (
-          <div style={{ ...S.card, display: "flex", gap: 20, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-            <DonutChart data={stats.catBreakdown} size={130} />
-            <div style={{ flex: 1, minWidth: 160 }}>
-              {stats.catBreakdown.map(d => (
-                <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1, fontSize: 12, color: "#C9D1D9" }}>{d.label}</div>
-                  <div style={{ fontSize: 12, color: "#8B949E", marginRight: 8 }}>{fmtNum(d.pct, 1)}%</div>
-                  <div style={{ width: 60, background: "#21262D", borderRadius: 4, height: 3 }}>
-                    <div style={{ width: `${Math.min(d.pct, 100)}%`, background: d.color, borderRadius: 4, height: 3 }} />
+        {/* Chart + breakdown – kattintható váltóval */}
+        {(stats.catBreakdown.length > 0 || stats.posBreakdown.length > 0) && (() => {
+          const activeData = chartMode === "category" ? stats.catBreakdown : stats.posBreakdown;
+          return (
+            <div style={{ ...S.card, marginBottom: 16 }}>
+              {/* Váltó fejléc */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <span style={{ fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
+                  {chartMode === "category" ? "Eszközosztályok" : "Pozíciók súlya"}
+                </span>
+                <div style={{ display: "flex", background: "#0D1117", borderRadius: 8, padding: 3, gap: 2 }}>
+                  {[["category", "🗂 Kategória"], ["position", "📊 Pozíció"]].map(([mode, label]) => (
+                    <button key={mode} onClick={() => setChartMode(mode)}
+                      style={{ background: chartMode === mode ? "#21262D" : "none", border: "none", borderRadius: 6, padding: "5px 10px", color: chartMode === mode ? "#E6EDF3" : "#8B949E", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "inherit", transition: "all .15s" }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+                {/* Kattintható donut */}
+                <div style={{ flexShrink: 0, cursor: "pointer", position: "relative" }}
+                  onClick={() => setChartMode(m => m === "category" ? "position" : "category")}
+                  title="Kattints a váltáshoz">
+                  <DonutChart data={activeData} size={130} />
+                  {/* Középső ikon */}
+                  <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 18, pointerEvents: "none" }}>
+                    {chartMode === "category" ? "🗂" : "📊"}
                   </div>
                 </div>
-              ))}
+
+                {/* Jelmagyarázat – scrollozható ha sok pozíció */}
+                <div style={{ flex: 1, minWidth: 150, maxHeight: 200, overflowY: "auto" }}>
+                  {activeData.map(d => (
+                    <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                      <div style={{ flex: 1, fontSize: 12, color: "#C9D1D9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={d.fullName || d.label}>
+                        {d.label}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#8B949E", flexShrink: 0, fontFamily: "'DM Mono', monospace" }}>
+                        {fmtNum(d.pct, 1)}%
+                      </div>
+                      <div style={{ width: 48, background: "#21262D", borderRadius: 4, height: 3, flexShrink: 0 }}>
+                        <div style={{ width: `${Math.min(d.pct, 100)}%`, background: d.color, borderRadius: 4, height: 3 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Keresés + szűrők */}
         <div style={{ marginBottom: 12 }}>
