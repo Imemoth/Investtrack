@@ -505,102 +505,98 @@ export default function App() {
   // ── Styles ────
   const S = {
     app: { minHeight: "100vh", background: "#0D1117", color: "#E6EDF3", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" },
-    header: { background: "#161B22", borderBottom: "1px solid #21262D", padding: "0 32px", display: "flex", alignItems: "center", gap: 16, height: 60 },
-    logo: { fontWeight: 800, fontSize: 18, letterSpacing: "-0.03em", color: "#E6EDF3" },
+    header: { background: "#161B22", borderBottom: "1px solid #21262D", padding: "0 16px", display: "flex", alignItems: "center", gap: 12, height: 56, position: "sticky", top: 0, zIndex: 40 },
+    logo: { fontWeight: 800, fontSize: 17, letterSpacing: "-0.03em", color: "#E6EDF3" },
     logoAccent: { color: "#6EE7B7" },
-    main: { maxWidth: 1280, margin: "0 auto", padding: "32px 24px" },
-    card: { background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: 20 },
-    statCard: { background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: "20px 24px" },
+    main: { maxWidth: 1280, margin: "0 auto", padding: "16px 12px 80px" },
+    card: { background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: 16 },
+    statCard: { background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: "16px" },
     btn: (variant) => ({
       background: variant === "primary" ? "linear-gradient(135deg, #238636, #2EA043)" : variant === "ghost" ? "none" : "#21262D",
       border: variant === "ghost" ? "1px solid #30363D" : "none",
-      borderRadius: 8, padding: "9px 16px", color: variant === "primary" ? "#fff" : "#C9D1D9",
+      borderRadius: 8, padding: "9px 14px", color: variant === "primary" ? "#fff" : "#C9D1D9",
       cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap"
     }),
-    th: { padding: "12px 16px", textAlign: "left", fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" },
-    td: { padding: "14px 16px", fontSize: 14, borderBottom: "1px solid #21262D" },
+    th: { padding: "10px 12px", textAlign: "left", fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" },
+    td: { padding: "12px", fontSize: 13, borderBottom: "1px solid #21262D" },
   };
 
   const SortArrow = ({ col }) => sortBy === col ? (sortDir === "asc" ? " ↑" : " ↓") : " ↕";
+
+  // Mobilon kártyás lista, desktopon tábla
+  const isMobile = window.innerWidth < 700;
 
   return (
     <div style={S.app}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
-      {/* Header */}
+      {/* Header – sticky, kompakt */}
       <header style={S.header}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+          <svg width="26" height="26" viewBox="0 0 28 28" fill="none" style={{ flexShrink: 0 }}>
             <rect width="28" height="28" rx="8" fill="#6EE7B7" fillOpacity=".15"/>
             <polyline points="5,20 10,13 16,16 23,7" stroke="#6EE7B7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
             <circle cx="23" cy="7" r="2.5" fill="#6EE7B7"/>
           </svg>
           <span style={S.logo}>Invest<span style={S.logoAccent}>Track</span></span>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button style={S.btn("ghost")} onClick={() => setModal("import")}>
-            <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 2v9m-4-4 4 4 4-4M2 14h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
-            Import
+        {/* Akció gombok – mobilon csak ikonok */}
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button title="Import" style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => setModal("import")}>
+            <svg width="15" height="15" fill="none" viewBox="0 0 16 16"><path d="M8 2v9m-4-4 4 4 4-4M2 14h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
+            {!isMobile && "Import"}
           </button>
-          <button style={S.btn("ghost")} onClick={() => exportCSV(investments)}>
-            <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 11V2m-4 5 4-4 4 4M2 14h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
-            Export
+          <button title="Export" style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => exportCSV(investments)}>
+            <svg width="15" height="15" fill="none" viewBox="0 0 16 16"><path d="M8 11V2m-4 5 4-4 4 4M2 14h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
+            {!isMobile && "Export"}
           </button>
-          <button
-            style={{ ...S.btn("ghost"), opacity: refreshing ? 0.6 : 1, minWidth: 130, position: "relative", overflow: "hidden" }}
-            onClick={handleRefresh}
-            disabled={refreshing}
-            title="Yahoo Finance árfolyamok frissítése (15 perc késleltetett)"
-          >
-            <svg width="14" height="14" fill="none" viewBox="0 0 16 16"
-              style={{ animation: refreshing ? "spin 1s linear infinite" : "none" }}>
+          <button title="Árfolyam frissítése"
+            style={{ ...S.btn("ghost"), padding: "8px 10px", opacity: refreshing ? 0.6 : 1 }}
+            onClick={handleRefresh} disabled={refreshing}>
+            <svg width="15" height="15" fill="none" viewBox="0 0 16 16"
+              style={{ animation: refreshing ? "spin 1s linear infinite" : "none", flexShrink: 0 }}>
               <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
               <path d="M8 1v3.5L10.5 2 8 1z" fill="currentColor"/>
             </svg>
-            {refreshing ? (refreshProgress || "Frissítés...") : "🔄 Árfolyam"}
+            {!isMobile && (refreshing ? (refreshProgress || "...") : "Árfolyam")}
           </button>
-          <button style={{ ...S.btn("ghost"), padding: "9px 12px" }} onClick={() => setShowLog(true)} title="Debug log">
-            🪲
-          </button>
-          <button style={S.btn("primary")} onClick={() => { setEditing(null); setModal("add"); }}>
-            <svg width="13" height="13" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="2" strokeLinecap="round"/></svg>
-            Befektetés
+          <button title="Debug log" style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => setShowLog(true)}>🪲</button>
+          <button style={{ ...S.btn("primary"), padding: "8px 12px" }} onClick={() => { setEditing(null); setModal("add"); }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="2" strokeLinecap="round"/></svg>
+            {!isMobile && "Befektetés"}
           </button>
         </div>
       </header>
 
       <main style={S.main}>
-        {/* Summary cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 28 }}>
+        {/* Summary cards – 2×2 mobilon */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
           {[
             { label: "Portfólió értéke", val: fmtCurrency(stats.totalValue, "HUF"), sub: `${investments.length} pozíció`, color: "#E6EDF3" },
             { label: "Befektetett tőke", val: fmtCurrency(stats.totalCost, "HUF"), sub: "Összes vételár", color: "#8B949E" },
             { label: "Nyereség / Veszteség", val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"), sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`, color: stats.totalPnL >= 0 ? "#6EE7B7" : "#FCA5A5" },
-            { label: "Kategóriák", val: stats.catBreakdown.length, sub: "aktív eszközosztály", color: "#93C5FD" },
+            { label: "Kategóriák", val: stats.catBreakdown.length, sub: "eszközosztály", color: "#93C5FD" },
           ].map((s, i) => (
             <div key={i} style={S.statCard}>
-              <div style={{ fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 8 }}>{s.label}</div>
-              <div style={{ fontSize: 26, fontWeight: 800, color: s.color, letterSpacing: "-0.03em", lineHeight: 1.1 }}>{s.val}</div>
-              <div style={{ fontSize: 12, color: "#8B949E", marginTop: 6 }}>{s.sub}</div>
+              <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: s.color, letterSpacing: "-0.02em", lineHeight: 1.2, wordBreak: "break-all" }}>{s.val}</div>
+              <div style={{ fontSize: 11, color: "#8B949E", marginTop: 4 }}>{s.sub}</div>
             </div>
           ))}
         </div>
 
         {/* Chart + breakdown */}
         {stats.catBreakdown.length > 0 && (
-          <div style={{ ...S.card, display: "flex", gap: 32, alignItems: "center", marginBottom: 28, flexWrap: "wrap" }}>
-            <div style={{ flexShrink: 0 }}>
-              <DonutChart data={stats.catBreakdown} size={170} />
-            </div>
-            <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 12 }}>Eszközosztályok</div>
+          <div style={{ ...S.card, display: "flex", gap: 20, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+            <DonutChart data={stats.catBreakdown} size={130} />
+            <div style={{ flex: 1, minWidth: 160 }}>
               {stats.catBreakdown.map(d => (
-                <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1, fontSize: 13, color: "#C9D1D9" }}>{d.label}</div>
-                  <div style={{ fontSize: 13, color: "#8B949E" }}>{fmtNum(d.pct, 1)}%</div>
-                  <div style={{ width: 80, background: "#21262D", borderRadius: 4, height: 4 }}>
-                    <div style={{ width: `${Math.min(d.pct, 100)}%`, background: d.color, borderRadius: 4, height: 4 }} />
+                <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                  <div style={{ flex: 1, fontSize: 12, color: "#C9D1D9" }}>{d.label}</div>
+                  <div style={{ fontSize: 12, color: "#8B949E", marginRight: 8 }}>{fmtNum(d.pct, 1)}%</div>
+                  <div style={{ width: 60, background: "#21262D", borderRadius: 4, height: 3 }}>
+                    <div style={{ width: `${Math.min(d.pct, 100)}%`, background: d.color, borderRadius: 4, height: 3 }} />
                   </div>
                 </div>
               ))}
@@ -608,32 +604,77 @@ export default function App() {
           </div>
         )}
 
-        {/* Filters */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Keresés + szűrők */}
+        <div style={{ marginBottom: 12 }}>
           <input
-            style={{ background: "#161B22", border: "1px solid #30363D", borderRadius: 8, padding: "8px 14px", color: "#E6EDF3", fontSize: 13, fontFamily: "inherit", outline: "none", width: 220 }}
+            style={{ background: "#161B22", border: "1px solid #30363D", borderRadius: 8, padding: "9px 14px", color: "#E6EDF3", fontSize: 14, fontFamily: "inherit", outline: "none", width: "100%", boxSizing: "border-box", marginBottom: 10 }}
             placeholder="🔍  Keresés..."
             value={search} onChange={e => setSearch(e.target.value)}
           />
-          {["Összes", ...CATEGORIES].map(c => (
-            <button key={c} style={{ ...S.btn(filterCat === c ? "primary" : "ghost"), padding: "7px 14px", fontSize: 12 }}
-              onClick={() => setFilterCat(c)}>{c}</button>
-          ))}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {["Összes", ...CATEGORIES].map(c => (
+              <button key={c} style={{ ...S.btn(filterCat === c ? "primary" : "ghost"), padding: "5px 10px", fontSize: 11 }}
+                onClick={() => setFilterCat(c)}>{c}</button>
+            ))}
+          </div>
         </div>
 
-        {/* Table */}
+        {/* Lista */}
         {investments.length === 0 ? (
-          <div style={{ ...S.card, textAlign: "center", padding: "60px 24px" }}>
-            <svg width="48" height="48" viewBox="0 0 48 48" fill="none" style={{ margin: "0 auto 16px" }}>
-              <rect x="8" y="32" width="8" height="12" rx="2" fill="#6EE7B7" fillOpacity=".5"/>
-              <rect x="20" y="20" width="8" height="24" rx="2" fill="#6EE7B7" fillOpacity=".7"/>
-              <rect x="32" y="10" width="8" height="34" rx="2" fill="#6EE7B7"/>
-            </svg>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#E6EDF3", marginBottom: 8 }}>Még nincs befektetés</div>
-            <div style={{ fontSize: 14, color: "#8B949E", marginBottom: 24 }}>Add hozzá az első pozíciódat, vagy importálj CSV fájlt.</div>
-            <button style={{ ...S.btn("primary"), margin: "0 auto" }} onClick={() => setModal("add")}>+ Első befektetés hozzáadása</button>
+          <div style={{ ...S.card, textAlign: "center", padding: "40px 20px" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#E6EDF3", marginBottom: 8 }}>Még nincs befektetés</div>
+            <div style={{ fontSize: 13, color: "#8B949E", marginBottom: 20 }}>Add hozzá az első pozíciódat, vagy importálj CSV fájlt.</div>
+            <button style={{ ...S.btn("primary"), margin: "0 auto" }} onClick={() => setModal("add")}>+ Hozzáadás</button>
+          </div>
+        ) : isMobile ? (
+          // ── Mobil kártyás nézet ──
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {displayed.map(inv => {
+              const { value, abs, pct } = calcPnL(inv);
+              const up = abs >= 0;
+              return (
+                <div key={inv.id} style={{ background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: "14px 16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 38, height: 38, borderRadius: 10, background: CATEGORY_COLORS[inv.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, color: CATEGORY_COLORS[inv.category], fontFamily: "'DM Mono', monospace" }}>{(inv.ticker || inv.name).slice(0, 4).toUpperCase()}</span>
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: "#E6EDF3" }}>{inv.name}</div>
+                        <div style={{ fontSize: 11, color: "#8B949E", fontFamily: "'DM Mono', monospace" }}>{inv.ticker} · {inv.currency}</div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: "#E6EDF3", fontFamily: "'DM Mono', monospace" }}>{fmtNum(value, 0)}</div>
+                      <div style={{ fontSize: 12, color: up ? "#6EE7B7" : "#FCA5A5", fontFamily: "'DM Mono', monospace" }}>{up ? "+" : ""}{fmtNum(pct, 2)}%</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, borderTop: "1px solid #21262D", paddingTop: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", marginBottom: 2 }}>Vételár</div>
+                      <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: "#C9D1D9" }}>{fmtNum(inv.buyPrice, 0)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", marginBottom: 2 }}>Mennyiség</div>
+                      <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: "#C9D1D9" }}>{fmtNum(inv.quantity, inv.quantity % 1 === 0 ? 0 : 4)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", marginBottom: 2 }}>P&L</div>
+                      <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: up ? "#6EE7B7" : "#FCA5A5" }}>{up ? "+" : ""}{fmtNum(abs, 0)}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
+                    <button onClick={() => { setEditing(inv); setModal("edit"); }}
+                      style={{ background: "#21262D", border: "none", borderRadius: 6, padding: "6px 12px", color: "#C9D1D9", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>✏️ Szerkesztés</button>
+                    <button onClick={() => setConfirmDelete(inv)}
+                      style={{ background: "none", border: "1px solid #3D1A1A", borderRadius: 6, padding: "6px 12px", color: "#FCA5A5", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🗑️</button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : (
+          // ── Desktop táblás nézet ──
           <div style={{ ...S.card, padding: 0, overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
@@ -642,7 +683,7 @@ export default function App() {
                   <th style={S.th}>Kategória</th>
                   <th style={{ ...S.th, textAlign: "right" }} onClick={() => toggleSort("value")}>Piaci érték<SortArrow col="value" /></th>
                   <th style={{ ...S.th, textAlign: "right" }}>Átlagár</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>Mennyiség</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>Db</th>
                   <th style={{ ...S.th, textAlign: "right" }} onClick={() => toggleSort("pnl")}>P&L<SortArrow col="pnl" /></th>
                   <th style={{ ...S.th, textAlign: "right" }} onClick={() => toggleSort("date")}>Vétel<SortArrow col="date" /></th>
                   <th style={S.th}></th>
@@ -650,7 +691,7 @@ export default function App() {
               </thead>
               <tbody>
                 {displayed.map(inv => {
-                  const { cost, value, abs, pct } = calcPnL(inv);
+                  const { value, abs, pct } = calcPnL(inv);
                   const up = abs >= 0;
                   return (
                     <tr key={inv.id} style={{ transition: "background .1s" }}
@@ -658,8 +699,8 @@ export default function App() {
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       <td style={S.td}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <div style={{ width: 36, height: 36, borderRadius: 8, background: CATEGORY_COLORS[inv.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                            <span style={{ fontSize: 12, fontWeight: 800, color: CATEGORY_COLORS[inv.category], fontFamily: "'DM Mono', monospace" }}>{(inv.ticker || inv.name).slice(0, 3).toUpperCase()}</span>
+                          <div style={{ width: 34, height: 34, borderRadius: 8, background: CATEGORY_COLORS[inv.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <span style={{ fontSize: 11, fontWeight: 800, color: CATEGORY_COLORS[inv.category], fontFamily: "'DM Mono', monospace" }}>{(inv.ticker || inv.name).slice(0, 3).toUpperCase()}</span>
                           </div>
                           <div>
                             <div style={{ fontWeight: 600, color: "#E6EDF3" }}>{inv.name}</div>
@@ -672,29 +713,17 @@ export default function App() {
                           {inv.category}
                         </span>
                       </td>
-                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>
-                        {fmtNum(value)}
-                      </td>
-                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", color: "#8B949E" }}>
-                        {fmtNum(inv.buyPrice)}
-                      </td>
-                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", color: "#8B949E" }}>
-                        {fmtNum(inv.quantity, inv.quantity % 1 === 0 ? 0 : 4)}
-                      </td>
+                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>{fmtNum(value)}</td>
+                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", color: "#8B949E" }}>{fmtNum(inv.buyPrice)}</td>
+                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", color: "#8B949E" }}>{fmtNum(inv.quantity, inv.quantity % 1 === 0 ? 0 : 4)}</td>
                       <td style={{ ...S.td, textAlign: "right" }}>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
                           <Sparkline pct={pct} />
-                          <span style={{ color: up ? "#6EE7B7" : "#FCA5A5", fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600 }}>
-                            {up ? "+" : ""}{fmtNum(pct, 2)}%
-                          </span>
-                          <span style={{ color: "#8B949E", fontFamily: "'DM Mono', monospace", fontSize: 11 }}>
-                            {up ? "+" : ""}{fmtNum(abs, 0)} {inv.currency}
-                          </span>
+                          <span style={{ color: up ? "#6EE7B7" : "#FCA5A5", fontFamily: "'DM Mono', monospace", fontSize: 13, fontWeight: 600 }}>{up ? "+" : ""}{fmtNum(pct, 2)}%</span>
+                          <span style={{ color: "#8B949E", fontFamily: "'DM Mono', monospace", fontSize: 11 }}>{up ? "+" : ""}{fmtNum(abs, 0)} {inv.currency}</span>
                         </div>
                       </td>
-                      <td style={{ ...S.td, textAlign: "right", color: "#8B949E", fontSize: 12 }}>
-                        {inv.buyDate || "—"}
-                      </td>
+                      <td style={{ ...S.td, textAlign: "right", color: "#8B949E", fontSize: 12 }}>{inv.buyDate || "—"}</td>
                       <td style={S.td}>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button title="Szerkesztés"
