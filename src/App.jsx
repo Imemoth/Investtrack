@@ -198,7 +198,11 @@ async function refreshAllPrices(investments, onProgress) {
         finalPrice = data.price * rate;
         appLog.info(`✓ ${inv.ticker}: ${data.price} ${data.currency} × ${rate} = ${finalPrice.toFixed(0)} HUF`);
       }
-      results.set(inv.ticker.toUpperCase(), finalPrice);
+      results.set(inv.ticker.toUpperCase(), {
+        nativePrice: data.price,
+        nativeCurrency: data.currency || inv.currency,
+        hufPrice: finalPrice,
+      });
     } catch (e) {
       appLog.warn(`[PriceRefresh] ${inv.ticker} hiba:`, e.message);
       errors.push(inv.ticker);
@@ -259,7 +263,8 @@ function parseCSV(text) {
     id: uid(), name: r[0] || "", ticker: r[1] || "",
     category: CATEGORIES.includes(r[2]) ? r[2] : "Egyéb",
     buyPrice: parseFloat(r[3]) || 0, quantity: parseFloat(r[4]) || 0,
-    currentPrice: parseFloat(r[5]) || 0,
+    // currentPrice-t nullán hagyjuk – frissítés adja meg helyesen
+    currentPrice: 0,
     currency: CURRENCIES.includes(r[6]) ? r[6] : "HUF",
     buyDate: r[7] || "", notes: r[8] || "",
   })).filter(r => r.name);
@@ -415,8 +420,12 @@ export default function App() {
         return;
       }
       setInvestments(prev => prev.map(inv => {
-        const newPrice = results.get(inv.ticker?.toUpperCase());
-        return newPrice !== undefined ? { ...inv, currentPrice: newPrice } : inv;
+        const hit = results.get(inv.ticker?.toUpperCase());
+        if (!hit) return inv;
+        // currentPrice mindig HUF-ban tárolódik ha a befektetés HUF devizájú
+        // egyébként natív devizában (USD/EUR)
+        const newPrice = inv.currency === "HUF" ? hit.hufPrice : hit.nativePrice;
+        return { ...inv, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency };
       }));
       const ok = results.size, fail = errors.length;
       showToast(fail > 0
@@ -428,6 +437,11 @@ export default function App() {
       setRefreshing(false);
       setRefreshProgress(null);
     }
+  };
+
+  const handleResetPrices = () => {
+    setInvestments(prev => prev.map(inv => ({ ...inv, currentPrice: 0 })));
+    showToast("Árak nullázva – nyomj Árfolyam frissítésre!", "info");
   };
 
   const saveInvestment = useCallback(inv => {
@@ -581,6 +595,7 @@ export default function App() {
             </svg>
             {!isMobile && (refreshing ? (refreshProgress || "...") : "Árfolyam")}
           </button>
+          <button title="Árak nullázása (ha rosszak az értékek)" style={{ ...S.btn("ghost"), padding: "8px 10px", fontSize: 15 }} onClick={handleResetPrices}>🔁</button>
           <button title="Debug log" style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => setShowLog(true)}>🪲</button>
           <button style={{ ...S.btn("primary"), padding: "8px 12px" }} onClick={() => { setEditing(null); setModal("add"); }}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="2" strokeLinecap="round"/></svg>
@@ -893,7 +908,8 @@ export default function App() {
       <style>{`
         @keyframes slideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body, #root { background: #0D1117; min-height: 100vh; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #161B22; }
         ::-webkit-scrollbar-thumb { background: #30363D; border-radius: 3px; }
