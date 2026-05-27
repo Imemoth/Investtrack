@@ -55,28 +55,19 @@ Adj visszajelzést PONTOSAN ebben a struktúrában (max 3-4 mondat kategóriánk
 Legyél direkt, kerüld az általánosságokat. Hivatkozz konkrét tickerekre.`;
 
     try {
-      appLog.info("AI elemzés indítása...");
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      appLog.info("AI elemzés indítása → /api/analyze");
+      const res = await fetch("/api/analyze", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey.trim(),
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-allow-browser": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: prompt }],
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, apiKey: apiKey.trim() }),
       });
 
       appLog.info(`AI válasz státusz: ${res.status}`);
 
       if (!res.ok) {
-        const errBody = await res.text();
-        appLog.error(`AI HTTP hiba ${res.status}`, errBody.slice(0, 200));
-        throw new Error(`HTTP ${res.status}: ${errBody.slice(0, 120)}`);
+        const errBody = await res.json().catch(() => ({ error: "Ismeretlen hiba" }));
+        appLog.error(`AI hiba ${res.status}`, errBody.error);
+        throw new Error(errBody.error || `HTTP ${res.status}`);
       }
 
       const data = await res.json();
