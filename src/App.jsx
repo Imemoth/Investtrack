@@ -7,6 +7,9 @@ import { refreshAllPrices } from "./services/priceService";
 import { DonutChart, Sparkline, Modal, Toast, LogModal } from "./components/ui";
 import { InvestmentForm } from "./components/InvestmentForm";
 import { DetailModal } from "./components/DetailModal";
+import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn } from "./components/DashboardWidgets";
+import { TransactionLog, addTransaction } from "./components/TransactionLog";
+import { AIAnalysis } from "./components/AIAnalysis";
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const S = {
@@ -47,6 +50,10 @@ export default function App() {
   const [showLog,         setShowLog]         = useState(false);
   const [chartMode,       setChartMode]       = useState("category");
   const [detailInv,       setDetailInv]       = useState(null);
+  const [activeTab,       setActiveTab]       = useState("portfolio"); // "portfolio" | "dashboard"
+  const [displayCurrency, setDisplayCurrency] = useState("HUF");
+  const [showTxLog,       setShowTxLog]       = useState(false);
+  const [showAI,          setShowAI]          = useState(false);
 
   const isMobile = window.innerWidth < 700;
 
@@ -108,7 +115,11 @@ export default function App() {
   const saveInvestment = useCallback(inv => {
     setInvestments(prev => {
       const idx = prev.findIndex(i => i.id === inv.id);
-      if (idx >= 0) { const next = [...prev]; next[idx] = inv; return next; }
+      if (idx >= 0) {
+        addTransaction(inv, "edit");
+        const next = [...prev]; next[idx] = inv; return next;
+      }
+      addTransaction(inv, "buy");
       return [...prev, inv];
     });
     setModal(null); setEditing(null);
@@ -116,6 +127,8 @@ export default function App() {
   }, [editing]);
 
   const doDelete = id => {
+    const inv = investments.find(i => i.id === id);
+    if (inv) addTransaction(inv, "sell");
     setInvestments(prev => prev.filter(i => i.id !== id));
     setConfirmDelete(null);
     showToast("Befektetés törölve.", "info");
@@ -209,8 +222,28 @@ export default function App() {
             <circle cx="23" cy="7" r="2.5" fill="#6EE7B7"/>
           </svg>
           <span style={S.logo}>Invest<span style={S.logoAcc}>Track</span></span>
+          {/* Tab switcher */}
+          <div style={{ display: "flex", background: "#0D1117", borderRadius: 8, padding: 3, gap: 2, marginLeft: 8 }}>
+            {[["portfolio","📋"],["dashboard","📊"]].map(([tab, icon]) => (
+              <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                background: activeTab === tab ? "#21262D" : "none", border: "none", borderRadius: 6,
+                padding: isMobile ? "5px 8px" : "5px 12px", cursor: "pointer", fontSize: isMobile ? 14 : 12,
+                color: activeTab === tab ? "#E6EDF3" : "#8B949E", fontFamily: "inherit", fontWeight: 600,
+              }}>{icon}{!isMobile && (tab === "portfolio" ? " Portfólió" : " Dashboard")}</button>
+            ))}
+          </div>
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {/* Currency switcher */}
+          <div style={{ display: "flex", background: "#0D1117", borderRadius: 8, padding: 2, gap: 1 }}>
+            {["HUF","USD","EUR"].map(cur => (
+              <button key={cur} onClick={() => setDisplayCurrency(cur)} style={{
+                background: displayCurrency === cur ? "#21262D" : "none", border: "none", borderRadius: 5,
+                padding: "4px 6px", cursor: "pointer", fontSize: 10, fontWeight: 700,
+                color: displayCurrency === cur ? "#E6EDF3" : "#8B949E", fontFamily: "'DM Mono',monospace",
+              }}>{cur}</button>
+            ))}
+          </div>
           <button title="Import" style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => setModal("import")}>
             <svg width="15" height="15" fill="none" viewBox="0 0 16 16"><path d="M8 2v9m-4-4 4 4 4-4M2 14h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>
             {!isMobile && "Import"}
@@ -226,8 +259,10 @@ export default function App() {
             </svg>
             {!isMobile && (refreshing ? refreshProgress || "..." : "Árfolyam")}
           </button>
-          <button title="Árak nullázása" style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={handleResetPrices}>🔁</button>
-          <button title="Debug log"       style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => setShowLog(true)}>🪲</button>
+          <button title="Tranzakció napló" style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => setShowTxLog(true)}>📝</button>
+          <button title="AI elemzés"       style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => setShowAI(true)}>🤖</button>
+          <button title="Árak nullázása"   style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={handleResetPrices}>🔁</button>
+          <button title="Debug log"        style={{ ...S.btn("ghost"), padding: "8px 10px" }} onClick={() => setShowLog(true)}>🪲</button>
           <button style={{ ...S.btn("primary"), padding: "8px 12px" }} onClick={() => { setEditing(null); setModal("add"); }}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="#fff" strokeWidth="2" strokeLinecap="round"/></svg>
             {!isMobile && "Befektetés"}
@@ -236,6 +271,35 @@ export default function App() {
       </header>
 
       <main style={S.main}>
+
+        {/* ── DASHBOARD TAB ── */}
+        {activeTab === "dashboard" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Stat cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {[
+                { label: "Portfólió értéke",    val: fmtCurrency(stats.totalValue, "HUF"),  sub: `${investments.length} pozíció`,   color: "#E6EDF3" },
+                { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"),  sub: "Összes vételár",                   color: "#8B949E" },
+                { label: "Nyereség / Veszteség",val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
+                                                 sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,              color: stats.totalPnL >= 0 ? "#6EE7B7" : "#FCA5A5" },
+                { label: "💰 Éves osztalék",    val: stats.totalDividend > 0 ? fmtCurrency(stats.totalDividend, "HUF") : "—", sub: "becsült bruttó", color: "#FDE68A" },
+              ].map((s, i) => (
+                <div key={i} style={S.statCard}>
+                  <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: s.color, letterSpacing: "-0.02em", lineHeight: 1.2, wordBreak: "break-all" }}>{s.val}</div>
+                  <div style={{ fontSize: 11, color: "#8B949E", marginTop: 4 }}>{s.sub}</div>
+                </div>
+              ))}
+            </div>
+            <TopMovers investments={investments} />
+            <CurrencyExposure investments={investments} />
+            <BenchmarkChart investments={investments} />
+            <RiskReturn investments={investments} />
+          </div>
+        )}
+
+        {/* ── PORTFOLIO TAB ── */}
+        {activeTab === "portfolio" && (<>
         {/* ── Stat cards ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
           {[
@@ -435,6 +499,7 @@ export default function App() {
             </table>
           </div>
         )}
+        </>)}
       </main>
 
       {/* ── Modals ── */}
@@ -487,7 +552,9 @@ export default function App() {
           onEdit={() => { setEditing(detailInv); setDetailInv(null); setModal("edit"); }} />
       )}
 
-      {showLog && <LogModal onClose={() => setShowLog(false)} />}
+      {showTxLog && <TransactionLog onClose={() => setShowTxLog(false)} />}
+      {showAI    && <AIAnalysis investments={investments} onClose={() => setShowAI(false)} />}
+      {showLog   && <LogModal onClose={() => setShowLog(false)} />}
 
       <Toast toast={toast} />
 
