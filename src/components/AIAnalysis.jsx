@@ -19,26 +19,19 @@ export function AIAnalysis({ investments, onClose }) {
     if (!apiKey.trim()) { setError("Add meg az Anthropic API kulcsot!"); return; }
     setLoading(true); setError(null); setAnalysis(null);
 
-    const portfolioSummary = investments.map(inv => {
-      const { pct, value } = calcPnL(inv);
-      return `- ${inv.name} (${inv.ticker}): ${fmtNum(value, 0)} ${inv.currency}, P&L: ${fmtNum(pct, 2)}%, kategória: ${inv.category}`;
-    }).join("\n");
+    // ── portfolioContext: ez cache-elődik a szerveren ──
+    const portfolioContext = [
+      `Összérték: ${fmtNum(investments.reduce((s,i) => s + i.currentPrice * i.quantity, 0), 0)} HUF`,
+      `Befektetett: ${fmtNum(investments.reduce((s,i) => s + i.buyPrice * i.quantity, 0), 0)} HUF`,
+      `Pozíciók (${investments.length} db):`,
+      ...investments.map(inv => {
+        const { pct, value } = calcPnL(inv);
+        return `  ${inv.ticker||inv.name}: ${fmtNum(value,0)} ${inv.currency}, P&L ${pct>=0?"+":""}${fmtNum(pct,2)}%, ${inv.category}`;
+      }),
+    ].join("\n");
 
-    const totalValue  = investments.reduce((s, i) => s + i.currentPrice * i.quantity, 0);
-    const totalCost   = investments.reduce((s, i) => s + i.buyPrice * i.quantity, 0);
-    const totalPnLPct = totalCost > 0 ? ((totalValue - totalCost) / totalCost * 100) : 0;
-
-    const prompt = `Te egy tapasztalt portfólió-elemző vagy. Elemezd az alábbi befektetési portfóliót magyarul, tömören és konkrétan.
-
-PORTFÓLIÓ ÖSSZEFOGLALÁS:
-- Összes érték: ${fmtNum(totalValue, 0)} HUF
-- Összes P&L: ${fmtNum(totalPnLPct, 2)}%
-- Pozíciók száma: ${investments.length}
-
-POZÍCIÓK:
-${portfolioSummary}
-
-Adj visszajelzést PONTOSAN ebben a struktúrában (max 3-4 mondat kategóriánként):
+    // ── userPrompt: ez változik kérésenként ──
+    const userPrompt = `Elemezd a portfóliómat PONTOSAN ebben a struktúrában (max 3-4 mondat szekciónként):
 
 **📊 Diverzifikáció**
 [értékelés]
@@ -50,16 +43,14 @@ Adj visszajelzést PONTOSAN ebben a struktúrában (max 3-4 mondat kategóriánk
 [mi működik jól]
 
 **💡 Javaslatok**
-[konkrét, actionable javaslatok]
-
-Legyél direkt, kerüld az általánosságokat. Hivatkozz konkrét tickerekre.`;
+[konkrét, actionable javaslatok]`;
 
     try {
-      appLog.info("AI elemzés indítása → /api/analyze");
+      appLog.info("AI elemzés indítása → /api/analyze (prompt caching)");
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, apiKey: apiKey.trim() }),
+        body: JSON.stringify({ portfolioContext, userPrompt, apiKey: apiKey.trim() }),
       });
 
       appLog.info(`AI válasz státusz: ${res.status}`);
@@ -71,7 +62,20 @@ Legyél direkt, kerüld az általánosságokat. Hivatkozz konkrét tickerekre.`;
       }
 
       const data = await res.json();
-      appLog.info("AI válasz megérkezett", JSON.stringify(data?.usage));
+
+      // Cache statisztika logolása
+      const u = data.usage;
+      if (u) {
+        appLog.info(
+          `Cache stats → input: ${u.input_tokens} | ` +
+          `cache_write: ${u.cache_creation_input_tokens ?? 0} | ` +
+          `cache_hit: ${u.cache_read_input_tokens ?? 0} | ` +
+          `output: ${u.output_tokens}`
+        );
+        if (u.cache_read_input_tokens > 0) {
+          appLog.info(`✓ Cache hit! ~${Math.round(u.cache_read_input_tokens / (u.input_tokens + u.cache_read_input_tokens) * 100)}% token megtakarítás`);
+        }
+      }
 
       const text = data?.content?.find(b => b.type === "text")?.text;
       if (!text) {
