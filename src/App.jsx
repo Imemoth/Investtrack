@@ -3,6 +3,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
 import { fmtNum, fmtCurrency, calcPnL, exportCSV, parseCSV } from "./utils";
 import { refreshAllPrices } from "./services/priceService";
+import { THEME as T, LIGHT_THEME, glassCard, haptic, KEYFRAMES } from "./design-system";
 
 import { DonutChart, Sparkline, Modal, Toast, LogModal } from "./components/ui";
 import { Header } from "./components/Header";
@@ -12,24 +13,7 @@ import { BubbleChart } from "./components/BubbleChart";
 import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn } from "./components/DashboardWidgets";
 import { TransactionLog, addTransaction } from "./components/TransactionLog";
 import { AIAnalysis } from "./components/AIAnalysis";
-
-// ─── STYLES ───────────────────────────────────────────────────────────────────
-const S = {
-  app:      { minHeight: "100vh", background: "#0D1117", color: "#E6EDF3", fontFamily: "'DM Sans', 'Segoe UI', sans-serif" },
-  main:     { maxWidth: 1280, margin: "0 auto", padding: "16px 12px 80px" },
-  card:     { background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: 16 },
-  statCard: { background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: 16 },
-  btn: (v) => ({
-    background: v === "primary" ? "linear-gradient(135deg,#238636,#2EA043)" : v === "ghost" ? "none" : "#21262D",
-    border: v === "ghost" ? "1px solid #30363D" : "none",
-    borderRadius: 8, padding: "9px 14px",
-    color: v === "primary" ? "#fff" : "#C9D1D9",
-    cursor: "pointer", fontSize: 13, fontWeight: 600,
-    fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
-  }),
-  th: { padding: "10px 12px", textAlign: "left", fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" },
-  td: { padding: "12px", fontSize: 13, borderBottom: "1px solid #21262D" },
-};
+import { FeatureModal } from "./components/FeatureModals";
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -49,10 +33,36 @@ export default function App() {
   const [showLog,         setShowLog]         = useState(false);
   const [chartMode,       setChartMode]       = useState("category");
   const [detailInv,       setDetailInv]       = useState(null);
-  const [activeTab,       setActiveTab]       = useState("portfolio"); // "portfolio" | "dashboard"
+  const [activeTab,       setActiveTab]       = useState("portfolio");
   const [displayCurrency, setDisplayCurrency] = useState("HUF");
   const [showTxLog,       setShowTxLog]       = useState(false);
   const [showAI,          setShowAI]          = useState(false);
+  const [featureModal,    setFeatureModal]    = useState(null); // "pnl"|"dca"|"tax"|"multi"|"push"
+  const [isDark,          setIsDark]          = useState(() => localStorage.getItem("investtrack_theme") !== "light");
+
+  const theme = isDark ? T : LIGHT_THEME;
+  const toggleTheme = () => {
+    setIsDark(v => { localStorage.setItem("investtrack_theme", v ? "light" : "dark"); return !v; });
+  };
+
+  // ── Dynamic styles based on theme ──
+  const S = {
+    app:      { minHeight: "100vh", background: isDark ? "#070B14" : "#F0F4F8", color: theme.text.primary, fontFamily: "'DM Sans', 'Segoe UI', sans-serif" },
+    main:     { maxWidth: 1280, margin: "0 auto", padding: "16px 12px 80px" },
+    card:     glassCard(theme, { padding: 16 }),
+    statCard: glassCard(theme, { padding: 16 }),
+    btn: (v) => ({
+      background: v === "primary" ? theme.gradient.primary : v === "ghost" ? "none" : theme.bg.surface,
+      border: v === "ghost" ? `1px solid ${theme.border.default}` : "none",
+      borderRadius: theme.radius.md, padding: "9px 14px",
+      color: v === "primary" ? "#fff" : theme.text.secondary,
+      cursor: "pointer", fontSize: 13, fontWeight: 600,
+      fontFamily: "inherit", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap",
+      transition: theme.transition.fast,
+    }),
+    th: { padding: "10px 12px", textAlign: "left", fontSize: 11, color: theme.text.secondary, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" },
+    td: { padding: "12px", fontSize: 13, borderBottom: `1px solid ${theme.border.subtle}` },
+  };
 
   const isMobile = window.innerWidth < 700;
 
@@ -218,10 +228,17 @@ export default function App() {
         refreshing={refreshing}         refreshProgress={refreshProgress}
         onRefresh={handleRefresh}       onResetPrices={handleResetPrices}
         onImport={() => setModal("import")} onExport={() => exportCSV(investments)}
-        onNewInvestment={() => { setEditing(null); setModal("add"); }}
+        onNewInvestment={() => { setEditing(null); setModal("add"); haptic("medium"); }}
         onTxLog={() => setShowTxLog(true)}
         onAI={() => setShowAI(true)}
         onLog={() => setShowLog(true)}
+        onPnL={() => setFeatureModal("pnl")}
+        onDCA={() => setFeatureModal("dca")}
+        onTax={() => setFeatureModal("tax")}
+        onMulti={() => setFeatureModal("multi")}
+        onPush={() => setFeatureModal("push")}
+        isDark={isDark}
+        onToggleTheme={toggleTheme}
       />
 
       <main style={S.main}>
@@ -257,16 +274,18 @@ export default function App() {
         {/* ── Stat cards ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
           {[
-            { label: "Portfólió értéke",    val: fmtCurrency(stats.totalValue, "HUF"),  sub: `${investments.length} pozíció`,   color: "#E6EDF3" },
-            { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"),  sub: "Összes vételár",                   color: "#8B949E" },
+            { label: "Portfólió értéke",    val: fmtCurrency(stats.totalValue, "HUF"),  sub: `${investments.length} pozíció`,   color: theme.text.primary,  glow: null },
+            { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"),  sub: "Összes vételár",                   color: theme.text.secondary,glow: null },
             { label: "Nyereség / Veszteség",val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
-                                             sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,              color: stats.totalPnL >= 0 ? "#6EE7B7" : "#FCA5A5" },
-            { label: "💰 Éves osztalék",    val: stats.totalDividend > 0 ? fmtCurrency(stats.totalDividend, "HUF") : "—", sub: "becsült bruttó", color: "#FDE68A" },
+                                             sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,
+                                             color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red,
+                                             glow: stats.totalPnL >= 0 ? "rgba(110,231,183,0.12)" : "rgba(252,165,165,0.12)" },
+            { label: "💰 Éves osztalék",    val: stats.totalDividend > 0 ? fmtCurrency(stats.totalDividend, "HUF") : "—", sub: "becsült bruttó", color: theme.accent.yellow, glow: null },
           ].map((s, i) => (
-            <div key={i} style={S.statCard}>
-              <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: s.color, letterSpacing: "-0.02em", lineHeight: 1.2, wordBreak: "break-all" }}>{s.val}</div>
-              <div style={{ fontSize: 11, color: "#8B949E", marginTop: 4 }}>{s.sub}</div>
+            <div key={i} style={{ ...S.statCard, background: s.glow || theme.bg.surface, animation: `slideUp 0.3s ease ${i * 0.05}s both` }}>
+              <div style={{ fontSize: 10, color: theme.text.tertiary, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: s.color, letterSpacing: "-0.02em", lineHeight: 1.2, wordBreak: "break-all" }}>{s.val}</div>
+              <div style={{ fontSize: 11, color: theme.text.tertiary, marginTop: 4 }}>{s.sub}</div>
             </div>
           ))}
         </div>
@@ -515,19 +534,28 @@ export default function App() {
       {showTxLog && <TransactionLog onClose={() => setShowTxLog(false)} />}
       {showAI    && <AIAnalysis investments={investments} onClose={() => setShowAI(false)} />}
       {showLog   && <LogModal onClose={() => setShowLog(false)} />}
+      {featureModal && (
+        <FeatureModal
+          feature={featureModal}
+          investments={investments}
+          onClose={() => setFeatureModal(null)}
+          onSwitchPortfolio={(invs) => { setInvestments(invs); showToast("Portfólió betöltve!"); }}
+        />
+      )}
 
       <Toast toast={toast} />
 
       <style>{`
-        @keyframes slideIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
-        @keyframes spin    { from { transform:rotate(0deg); }             to { transform:rotate(360deg); } }
+        ${KEYFRAMES}
         *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
-        html, body, #root { background:#0D1117; min-height:100vh; }
-        ::-webkit-scrollbar { width:6px; height:6px; }
-        ::-webkit-scrollbar-track { background:#161B22; }
-        ::-webkit-scrollbar-thumb { background:#30363D; border-radius:3px; }
+        html, body, #root { background:${isDark ? "#070B14" : "#F0F4F8"}; min-height:100vh; }
+        ::-webkit-scrollbar { width:5px; height:5px; }
+        ::-webkit-scrollbar-track { background:transparent; }
+        ::-webkit-scrollbar-thumb { background:${theme.border.default}; border-radius:3px; }
         input[type=number]::-webkit-inner-spin-button { opacity:.3; }
-        select option { background:#1C2128; color:#E6EDF3; }
+        select option { background:${isDark ? "#0D1117" : "#fff"}; color:${theme.text.primary}; }
+        ::-webkit-scrollbar-button { display:none; }
+        * { -webkit-tap-highlight-color: transparent; }
       `}</style>
     </div>
   );
