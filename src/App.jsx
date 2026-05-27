@@ -245,20 +245,22 @@ export default function App() {
 
         {/* ── DASHBOARD TAB ── */}
         {activeTab === "dashboard" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {/* Stat cards */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Stat cards – 2x2 */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {[
-                { label: "Portfólió értéke",    val: fmtCurrency(stats.totalValue, "HUF"),  sub: `${investments.length} pozíció`,   color: "#E6EDF3" },
-                { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"),  sub: "Összes vételár",                   color: "#8B949E" },
+                { label: "Portfólió értéke",    val: fmtCurrency(stats.totalValue, "HUF"), sub: `${investments.length} pozíció`, color: theme.text.primary },
+                { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"), sub: "Összes vételár",                color: theme.text.secondary },
                 { label: "Nyereség / Veszteség",val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
-                                                 sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,              color: stats.totalPnL >= 0 ? "#6EE7B7" : "#FCA5A5" },
-                { label: "💰 Éves osztalék",    val: stats.totalDividend > 0 ? fmtCurrency(stats.totalDividend, "HUF") : "—", sub: "becsült bruttó", color: "#FDE68A" },
+                                                 sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,
+                                                 color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red },
+                { label: "💰 Éves osztalék",    val: stats.totalDividend > 0 ? fmtCurrency(stats.totalDividend, "HUF") : "—",
+                                                 sub: "becsült bruttó",  color: theme.accent.yellow },
               ].map((s, i) => (
                 <div key={i} style={S.statCard}>
-                  <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: s.color, letterSpacing: "-0.02em", lineHeight: 1.2, wordBreak: "break-all" }}>{s.val}</div>
-                  <div style={{ fontSize: 11, color: "#8B949E", marginTop: 4 }}>{s.sub}</div>
+                  <div style={{ fontSize: 10, color: theme.text.tertiary, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: s.color, letterSpacing: "-0.02em", lineHeight: 1.2, wordBreak: "break-all" }}>{s.val}</div>
+                  <div style={{ fontSize: 11, color: theme.text.tertiary, marginTop: 4 }}>{s.sub}</div>
                 </div>
               ))}
             </div>

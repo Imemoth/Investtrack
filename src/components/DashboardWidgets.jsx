@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
-import { calcPnL, fmtNum, fmtCurrency } from "../utils";
+import { calcPnL, fmtNum } from "../utils";
 import { CATEGORY_COLORS, POSITION_PALETTE } from "../constants";
 import { fetchOHLCV } from "./StockChart";
+import { THEME as T, glassCard } from "../design-system";
 
 // ─── TOP WINNERS / LOSERS ─────────────────────────────────────────────────────
 export function TopMovers({ investments }) {
@@ -15,27 +16,27 @@ export function TopMovers({ investments }) {
   if (!sorted.length) return null;
 
   const winners = sorted.slice(0, 3);
-  const losers  = sorted.slice(-3).reverse();
+  const losers  = [...sorted].reverse().slice(0, 3);
+
+  const MEDALS = ["🥇","🥈","🥉"];
 
   const Row = ({ inv, rank, isWinner }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #21262D" }}>
-      <div style={{ width: 20, fontSize: 16, textAlign: "center" }}>
-        {rank === 0 ? "🥇" : rank === 1 ? "🥈" : "🥉"}
-      </div>
-      <div style={{ width: 32, height: 32, borderRadius: 8, background: CATEGORY_COLORS[inv.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${T.border.subtle}` }}>
+      <span style={{ fontSize: 15, width: 22, textAlign: "center", flexShrink: 0 }}>{MEDALS[rank]}</span>
+      <div style={{ width: 34, height: 34, borderRadius: T.radius.md, background: CATEGORY_COLORS[inv.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
         <span style={{ fontSize: 9, fontWeight: 800, color: CATEGORY_COLORS[inv.category], fontFamily: "'DM Mono',monospace" }}>
           {(inv.ticker || inv.name).slice(0, 4)}
         </span>
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#E6EDF3", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.name}</div>
-        <div style={{ fontSize: 11, color: "#8B949E", fontFamily: "'DM Mono',monospace" }}>{fmtNum(inv.value, 0)} {inv.currency}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.text.primary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.name}</div>
+        <div style={{ fontSize: 11, color: T.text.secondary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(inv.value, 0)} {inv.currency}</div>
       </div>
-      <div style={{ textAlign: "right" }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: isWinner ? "#6EE7B7" : "#FCA5A5", fontFamily: "'DM Mono',monospace" }}>
+      <div style={{ textAlign: "right", flexShrink: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: isWinner ? T.accent.green : T.accent.red, fontFamily: "'DM Mono',monospace" }}>
           {isWinner ? "+" : ""}{fmtNum(inv.pct, 2)}%
         </div>
-        <div style={{ fontSize: 11, color: "#8B949E", fontFamily: "'DM Mono',monospace" }}>
+        <div style={{ fontSize: 11, color: T.text.tertiary, fontFamily: "'DM Mono',monospace" }}>
           {isWinner ? "+" : ""}{fmtNum(inv.abs, 0)}
         </div>
       </div>
@@ -43,13 +44,14 @@ export function TopMovers({ investments }) {
   );
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-      <div style={{ background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: 16 }}>
-        <div style={{ fontSize: 11, color: "#6EE7B7", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 12 }}>🏆 Top nyertesek</div>
+    // Egymás ALÁ mobilon — nem grid 1fr 1fr
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={glassCard(T, { padding: 16 })}>
+        <div style={{ fontSize: 11, color: T.accent.green, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 10 }}>🏆 Top nyertesek</div>
         {winners.map((inv, i) => <Row key={inv.id} inv={inv} rank={i} isWinner />)}
       </div>
-      <div style={{ background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: 16 }}>
-        <div style={{ fontSize: 11, color: "#FCA5A5", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 12 }}>📉 Top vesztesek</div>
+      <div style={glassCard(T, { padding: 16 })}>
+        <div style={{ fontSize: 11, color: T.accent.red, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 10 }}>📉 Top vesztesek</div>
         {losers.map((inv, i) => <Row key={inv.id} inv={inv} rank={i} isWinner={false} />)}
       </div>
     </div>
@@ -66,32 +68,33 @@ export function CurrencyExposure({ investments }) {
       byCurrency[inv.currency] = (byCurrency[inv.currency] || 0) + v;
     });
     const CURR_COLORS = { HUF: "#6EE7B7", USD: "#93C5FD", EUR: "#FDE68A", GBP: "#C4B5FD" };
+    const FLAGS       = { HUF: "🇭🇺", USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧" };
     return Object.entries(byCurrency)
-      .map(([cur, val]) => ({ cur, val, pct: total > 0 ? (val / total) * 100 : 0, color: CURR_COLORS[cur] || "#94A3B8" }))
+      .map(([cur, val]) => ({ cur, val, pct: total > 0 ? (val / total) * 100 : 0, color: CURR_COLORS[cur] || T.text.secondary, flag: FLAGS[cur] || "🌐" }))
       .sort((a, b) => b.val - a.val);
   }, [investments]);
 
   if (!data.length) return null;
 
   return (
-    <div style={{ background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: 16 }}>
-      <div style={{ fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 14 }}>
+    <div style={glassCard(T, { padding: 16 })}>
+      <div style={{ fontSize: 11, color: T.text.secondary, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 14 }}>
         🌍 Deviza-kitettség
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {data.map(({ cur, val, pct, color }) => (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {data.map(({ cur, val, pct, color, flag }) => (
           <div key={cur}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color }}>
-                {cur === "HUF" ? "🇭🇺" : cur === "USD" ? "🇺🇸" : cur === "EUR" ? "🇪🇺" : "🇬🇧"} {cur}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color, display: "flex", alignItems: "center", gap: 6 }}>
+                {flag} {cur}
               </span>
-              <div style={{ textAlign: "right" }}>
-                <span style={{ fontSize: 13, fontFamily: "'DM Mono',monospace", color: "#E6EDF3" }}>{fmtNum(pct, 1)}%</span>
-                <span style={{ fontSize: 11, color: "#8B949E", marginLeft: 8, fontFamily: "'DM Mono',monospace" }}>{fmtNum(val, 0)}</span>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <span style={{ fontSize: 13, fontFamily: "'DM Mono',monospace", color: T.text.primary, fontWeight: 700 }}>{fmtNum(pct, 1)}%</span>
+                <span style={{ fontSize: 11, color: T.text.tertiary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(val, 0)}</span>
               </div>
             </div>
-            <div style={{ height: 6, background: "#21262D", borderRadius: 3 }}>
-              <div style={{ width: `${pct}%`, height: 6, background: color, borderRadius: 3, transition: "width .5s ease" }} />
+            <div style={{ height: 6, background: T.bg.inset, borderRadius: T.radius.full }}>
+              <div style={{ width: `${Math.min(pct, 100)}%`, height: 6, background: color, borderRadius: T.radius.full, transition: "width 0.8s cubic-bezier(0.4,0,0.2,1)", boxShadow: `0 0 8px ${color}60` }} />
             </div>
           </div>
         ))}
@@ -100,7 +103,7 @@ export function CurrencyExposure({ investments }) {
   );
 }
 
-// ─── BENCHMARK COMPARISON ─────────────────────────────────────────────────────
+// ─── BENCHMARK ────────────────────────────────────────────────────────────────
 export function BenchmarkChart({ investments }) {
   const [benchData, setBenchData] = useState(null);
   const [range,     setRange]     = useState("1y");
@@ -109,8 +112,7 @@ export function BenchmarkChart({ investments }) {
   useEffect(() => {
     setLoading(true);
     fetchOHLCV("^GSPC", range)
-      .then(setBenchData)
-      .catch(() => setBenchData([]))
+      .then(setBenchData).catch(() => setBenchData([]))
       .finally(() => setLoading(false));
   }, [range]);
 
@@ -122,52 +124,38 @@ export function BenchmarkChart({ investments }) {
 
   const benchReturn = useMemo(() => {
     if (!benchData?.length) return null;
-    const first = benchData[0].close, last = benchData[benchData.length - 1].close;
-    return ((last - first) / first) * 100;
+    return ((benchData[benchData.length - 1].close - benchData[0].close) / benchData[0].close) * 100;
   }, [benchData]);
 
-  const W = 340, H = 120, PAD = { t: 10, r: 8, b: 20, l: 36 };
-
-  const renderLine = (points, color, normalizeFirst) => {
-    if (!points?.length) return null;
-    const pcts  = points.map(p => ((p.close - normalizeFirst) / normalizeFirst) * 100);
-    const allPcts = pcts;
-    const minY  = Math.min(...allPcts, -5);
-    const maxY  = Math.max(...allPcts, 5);
-    const px    = i => PAD.l + (i / (points.length - 1)) * (W - PAD.l - PAD.r);
-    const py    = v => PAD.t + (1 - (v - minY) / (maxY - minY)) * (H - PAD.t - PAD.b);
-    const d     = pcts.map((v, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(" ");
-    return { d, px, py, minY, maxY };
-  };
-
-  const benchLine = benchData?.length ? renderLine(benchData, "#93C5FD", benchData[0].close) : null;
+  const W = 340, H = 110, PAD = { t: 10, r: 8, b: 16, l: 32 };
 
   return (
-    <div style={{ background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: 16 }}>
+    <div style={glassCard(T, { padding: 16 })}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
+        <div style={{ fontSize: 11, color: T.text.secondary, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
           💹 Benchmark vs S&P 500
         </div>
         <div style={{ display: "flex", gap: 4 }}>
-          {["3mo", "1y", "5y"].map(r => (
+          {["3mo","1y","5y"].map(r => (
             <button key={r} onClick={() => setRange(r)} style={{
-              background: range === r ? "#21262D" : "none",
-              border: `1px solid ${range === r ? "#30363D" : "transparent"}`,
-              borderRadius: 6, padding: "3px 8px", color: range === r ? "#E6EDF3" : "#8B949E",
-              cursor: "pointer", fontSize: 11, fontFamily: "inherit",
+              background: range === r ? T.bg.overlay : "none",
+              border: `1px solid ${range === r ? T.border.default : "transparent"}`,
+              borderRadius: T.radius.sm, padding: "3px 9px",
+              color: range === r ? T.text.primary : T.text.secondary,
+              cursor: "pointer", fontSize: 11, fontFamily: "inherit", fontWeight: 600,
             }}>{r}</button>
           ))}
         </div>
       </div>
 
-      {/* Return comparison */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+      {/* Return cards — egymás MELLÉ de kicsik */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
         {[
-          { label: "Portfóliód", val: portfolioReturn, color: portfolioReturn >= 0 ? "#6EE7B7" : "#FCA5A5" },
-          { label: "S&P 500", val: benchReturn, color: benchReturn != null ? (benchReturn >= 0 ? "#93C5FD" : "#FCA5A5") : "#8B949E" },
+          { label: "Portfóliód",  val: portfolioReturn,  color: portfolioReturn >= 0 ? T.accent.green : T.accent.red },
+          { label: "S&P 500",     val: benchReturn,      color: benchReturn != null ? (benchReturn >= 0 ? T.accent.blue : T.accent.red) : T.text.secondary },
         ].map(({ label, val, color }) => (
-          <div key={label} style={{ background: "#0D1117", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
-            <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
+          <div key={label} style={{ background: T.bg.inset, borderRadius: T.radius.md, padding: "10px 12px", textAlign: "center" }}>
+            <div style={{ fontSize: 10, color: T.text.tertiary, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>{label}</div>
             <div style={{ fontSize: 20, fontWeight: 800, color, fontFamily: "'DM Mono',monospace" }}>
               {val != null ? `${val >= 0 ? "+" : ""}${fmtNum(val, 2)}%` : "—"}
             </div>
@@ -175,103 +163,100 @@ export function BenchmarkChart({ investments }) {
         ))}
       </div>
 
-      {/* Chart */}
       {loading ? (
-        <div style={{ height: 80, display: "flex", alignItems: "center", justifyContent: "center", color: "#8B949E", fontSize: 12 }}>Töltés...</div>
-      ) : benchLine && (
-        <>
-          <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
-            {/* Zero line */}
-            {(() => {
-              const { minY, maxY } = benchLine;
-              const zeroY = PAD.t + (1 - (0 - minY) / (maxY - minY)) * (H - PAD.t - PAD.b);
-              return <line x1={PAD.l} y1={zeroY} x2={W - PAD.r} y2={zeroY} stroke="#30363D" strokeWidth="1" strokeDasharray="4,4" />;
-            })()}
-            {/* S&P 500 line */}
-            <path d={benchLine.d} fill="none" stroke="#93C5FD" strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
-            {/* Portfolio "bar" at end */}
-            {(() => {
-              const { minY, maxY } = benchLine;
-              const py = v => PAD.t + (1 - (v - minY) / (maxY - minY)) * (H - PAD.t - PAD.b);
-              const zeroY = py(0);
-              const portY = py(portfolioReturn);
-              const clr   = portfolioReturn >= 0 ? "#6EE7B7" : "#FCA5A5";
-              return (
-                <g>
-                  <line x1={W - PAD.r - 2} y1={zeroY} x2={W - PAD.r - 2} y2={portY} stroke={clr} strokeWidth="3" strokeLinecap="round" />
-                  <circle cx={W - PAD.r - 2} cy={portY} r="4" fill={clr} />
-                </g>
-              );
-            })()}
-          </svg>
-          <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#8B949E" }}>
-              <div style={{ width: 16, height: 2, background: "#93C5FD", borderRadius: 2 }} /> S&P 500 ({range})
+        <div style={{ height: 70, display: "flex", alignItems: "center", justifyContent: "center", color: T.text.tertiary, fontSize: 12 }}>
+          Betöltés...
+        </div>
+      ) : benchData?.length > 1 && (() => {
+        const closes = benchData.map(p => p.close);
+        const minV   = Math.min(...closes) * 0.998;
+        const maxV   = Math.max(...closes) * 1.002;
+        const px     = i => PAD.l + (i / (benchData.length - 1)) * (W - PAD.l - PAD.r);
+        const py     = v => PAD.t + (1 - (v - minV) / (maxV - minV)) * (H - PAD.t - PAD.b);
+        const d      = benchData.map((p, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(p.close).toFixed(1)}`).join(" ");
+        const color  = benchReturn >= 0 ? T.accent.blue : T.accent.red;
+        // Portfólió pont
+        const portY  = py(minV + (portfolioReturn / 100) * (maxV - minV));
+        const portColor = portfolioReturn >= 0 ? T.accent.green : T.accent.red;
+
+        return (
+          <>
+            <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
+              <defs>
+                <linearGradient id="benchGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={color} stopOpacity="0.2"/>
+                  <stop offset="100%" stopColor={color} stopOpacity="0"/>
+                </linearGradient>
+              </defs>
+              {/* Zero baseline */}
+              {(() => { const z = py(minV + (0 - minV)); return <line x1={PAD.l} y1={z} x2={W - PAD.r} y2={z} stroke={T.border.subtle} strokeWidth="1" strokeDasharray="4,3" />; })()}
+              {/* Area fill */}
+              <path d={`${d} L${px(benchData.length-1)},${H-PAD.b} L${px(0)},${H-PAD.b} Z`} fill="url(#benchGrad)" />
+              {/* Line */}
+              <path d={d} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+              {/* Portfolio dot */}
+              <circle cx={W - PAD.r - 3} cy={portY} r="5" fill={portColor} opacity="0.9" />
+              <circle cx={W - PAD.r - 3} cy={portY} r="9" fill={portColor} opacity="0.15" />
+            </svg>
+            <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: T.text.tertiary }}>
+                <div style={{ width: 14, height: 2, background: color, borderRadius: 1 }} /> S&P 500
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: T.text.tertiary }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: portColor }} /> Portfóliód
+              </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#8B949E" }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: portfolioReturn >= 0 ? "#6EE7B7" : "#FCA5A5" }} /> Portfóliód
-            </div>
-          </div>
-        </>
-      )}
+          </>
+        );
+      })()}
     </div>
   );
 }
 
-// ─── VOLATILITY / RISK-RETURN ─────────────────────────────────────────────────
+// ─── RISK-RETURN ──────────────────────────────────────────────────────────────
 export function RiskReturn({ investments }) {
-  const data = useMemo(() => {
-    return investments
-      .filter(i => i.currentPrice > 0 && i.buyPrice > 0)
-      .map(i => {
-        const { pct, value } = calcPnL(i);
-        // Volatilitás proxy: ha nincs historikus adat, |pct| / time közelítés
-        const days = i.buyDate
-          ? Math.max(1, (Date.now() - new Date(i.buyDate)) / 86400000)
-          : 365;
-        const annualizedVol = Math.abs(pct) / Math.sqrt(days / 365) / 10;
-        return { ...i, returnPct: pct, risk: Math.min(annualizedVol, 100), value };
-      });
-  }, [investments]);
+  const data = useMemo(() =>
+    investments.filter(i => i.currentPrice > 0 && i.buyPrice > 0).map((i, idx) => {
+      const { pct, value } = calcPnL(i);
+      const days = i.buyDate ? Math.max(1, (Date.now() - new Date(i.buyDate)) / 86400000) : 365;
+      return { ...i, returnPct: pct, risk: Math.min(Math.abs(pct) / Math.sqrt(days / 365) / 10, 100), value, color: POSITION_PALETTE[idx % POSITION_PALETTE.length] };
+    }),
+  [investments]);
 
   if (data.length < 2) return null;
 
-  const maxRisk  = Math.max(...data.map(d => d.risk), 10);
-  const minRet   = Math.min(...data.map(d => d.returnPct), -10);
-  const maxRet   = Math.max(...data.map(d => d.returnPct), 10);
-  const W = 320, H = 180, PAD = 36;
-  const maxVal = Math.max(...data.map(d => d.value));
-
+  const maxRisk = Math.max(...data.map(d => d.risk), 10);
+  const minRet  = Math.min(...data.map(d => d.returnPct), -10);
+  const maxRet  = Math.max(...data.map(d => d.returnPct), 10);
+  const maxVal  = Math.max(...data.map(d => d.value));
+  const W = 340, H = 200, PAD = 40;
   const px = r => PAD + (r / maxRisk) * (W - 2 * PAD);
   const py = r => PAD + (1 - (r - minRet) / (maxRet - minRet)) * (H - 2 * PAD);
 
   return (
-    <div style={{ background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: 16 }}>
-      <div style={{ fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 4 }}>
+    <div style={glassCard(T, { padding: 16 })}>
+      <div style={{ fontSize: 11, color: T.text.secondary, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 4 }}>
         ⚖️ Kockázat–Hozam
       </div>
-      <div style={{ fontSize: 11, color: "#8B949E", marginBottom: 12 }}>
-        Buborék mérete = pozíció értéke · Y tengely = hozam · X tengely = becsült kockázat
+      <div style={{ fontSize: 11, color: T.text.tertiary, marginBottom: 12 }}>
+        Buborék = pozíció értéke · X = becsült kockázat · Y = hozam
       </div>
       <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
         {/* Grid */}
-        <line x1={PAD} y1={py(0)} x2={W - PAD} y2={py(0)} stroke="#30363D" strokeWidth="1" strokeDasharray="4,4" />
-        <line x1={px(0)} y1={PAD} x2={px(0)} y2={H - PAD} stroke="#30363D" strokeWidth="1" strokeDasharray="4,4" />
+        <line x1={PAD} y1={py(0)} x2={W-PAD} y2={py(0)} stroke={T.border.default} strokeWidth="1" strokeDasharray="4,3" />
+        <line x1={PAD} y1={PAD}   x2={PAD}   y2={H-PAD} stroke={T.border.subtle} strokeWidth="1" />
         {/* Axis labels */}
-        <text x={W / 2} y={H - 4}  fill="#8B949E" fontSize="8" textAnchor="middle">Kockázat →</text>
-        <text x={8}    y={H / 2}   fill="#8B949E" fontSize="8" textAnchor="middle" transform={`rotate(-90,8,${H/2})`}>Hozam</text>
-        {/* Bubbles */}
+        <text x={W/2} y={H-4}  fill={T.text.tertiary} fontSize="8" textAnchor="middle" fontFamily="'DM Sans',sans-serif">Kockázat →</text>
+        <text x={12}  y={H/2}  fill={T.text.tertiary} fontSize="8" textAnchor="middle" transform={`rotate(-90,12,${H/2})`} fontFamily="'DM Sans',sans-serif">Hozam</text>
         {data.map((d, i) => {
-          const r   = 4 + (d.value / maxVal) * 16;
-          const clr = POSITION_PALETTE[i % POSITION_PALETTE.length];
-          const ret = d.returnPct >= 0 ? "#6EE7B7" : "#FCA5A5";
+          const r = 5 + (d.value / maxVal) * 18;
           return (
             <g key={d.id}>
-              <circle cx={px(d.risk)} cy={py(d.returnPct)} r={r} fill={clr} fillOpacity="0.35" stroke={clr} strokeWidth="1.5">
-                <title>{d.name}: {fmtNum(d.returnPct, 2)}% hozam, {fmtNum(d.risk, 1)} kockázat</title>
+              <circle cx={px(d.risk)} cy={py(d.returnPct)} r={r} fill={d.color} fillOpacity="0.3" stroke={d.color} strokeWidth="1.5">
+                <title>{d.name}: {fmtNum(d.returnPct,2)}%</title>
               </circle>
-              <text x={px(d.risk)} y={py(d.returnPct) + 3.5} fill="#E6EDF3" fontSize="7" textAnchor="middle" fontFamily="'DM Mono',monospace">
-                {(d.ticker || d.name).slice(0, 5)}
+              <text x={px(d.risk)} y={py(d.returnPct)+3.5} fill={T.text.primary} fontSize="7" textAnchor="middle" fontFamily="'DM Mono',monospace">
+                {(d.ticker||d.name).slice(0,5)}
               </text>
             </g>
           );
