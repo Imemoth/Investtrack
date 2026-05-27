@@ -3,6 +3,43 @@ import { CATEGORY_COLORS } from "../constants";
 import { calcPnL, fmtNum } from "../utils";
 import { fetchYahooPrice } from "../services/priceService";
 
+const CHART_PROXIES = [
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  url => `https://thingproxy.freeboard.io/fetch/${url}`,
+];
+
+async function fetchChartData(ticker, range) {
+  const interval  = range === "1mo" || range === "3mo" ? "1d" : "1wk";
+  const hosts     = ["query1", "query2"];
+  let lastError;
+
+  for (const host of hosts) {
+    const yahooUrl = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`;
+    for (const proxyFn of CHART_PROXIES) {
+      try {
+        const res  = await fetch(proxyFn(yahooUrl), { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        if (text.trim().startsWith("<")) throw new Error("HTML proxy hiba");
+        const json   = JSON.parse(text);
+        const result = json?.chart?.result?.[0];
+        if (!result) throw new Error("Üres result");
+        const times  = result.timestamp || [];
+        const closes = result.indicators?.quote?.[0]?.close || [];
+        const points = times
+          .map((t, i) => ({ t: new Date(t * 1000), v: closes[i] }))
+          .filter(p => p.v != null);
+        if (!points.length) throw new Error("Nincs adatpont");
+        return points;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+  }
+  throw lastError;
+}
+
 // ─── HISTORIC CHART ───────────────────────────────────────────────────────────
 function HistoricChart({ ticker, currency }) {
   const [data,    setData]    = useState(null);
@@ -13,20 +50,8 @@ function HistoricChart({ ticker, currency }) {
   useEffect(() => {
     if (!ticker) return;
     setLoading(true); setError(null); setData(null);
-    const interval  = range === "1mo" || range === "3mo" ? "1d" : "1wk";
-    const yahooUrl  = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`;
-    const proxyUrl  = `https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`;
-
-    fetch(proxyUrl, { signal: AbortSignal.timeout(10000) })
-      .then(r => r.text())
-      .then(text => {
-        const json   = JSON.parse(text);
-        const result = json?.chart?.result?.[0];
-        if (!result) throw new Error("Nincs adat");
-        const times  = result.timestamp || [];
-        const closes = result.indicators?.quote?.[0]?.close || [];
-        setData(times.map((t, i) => ({ t: new Date(t * 1000), v: closes[i] })).filter(p => p.v != null));
-      })
+    fetchChartData(ticker, range)
+      .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [ticker, range]);
@@ -91,13 +116,23 @@ function NewsFeed({ ticker }) {
   useEffect(() => {
     if (!ticker) return;
     setLoading(true);
-    const newsUrl   = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=0&newsCount=6&enableFuzzyQuery=false`;
-    const proxyUrl  = `https://api.allorigins.win/raw?url=${encodeURIComponent(newsUrl)}`;
-    fetch(proxyUrl, { signal: AbortSignal.timeout(8000) })
-      .then(r => r.text())
-      .then(text => setNews(JSON.parse(text)?.news || []))
-      .catch(() => setNews([]))
-      .finally(() => setLoading(false));
+    const newsUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=0&newsCount=6&enableFuzzyQuery=false`;
+
+    // Próbáljunk több proxy-t
+    const tryProxies = async () => {
+      for (const proxyFn of CHART_PROXIES) {
+        try {
+          const res  = await fetch(proxyFn(newsUrl), { signal: AbortSignal.timeout(8000) });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const text = await res.text();
+          if (text.trim().startsWith("<")) throw new Error("HTML proxy hiba");
+          return JSON.parse(text)?.news || [];
+        } catch { /* próbáljuk a következőt */ }
+      }
+      return [];
+    };
+
+    tryProxies().then(setNews).finally(() => setLoading(false));
   }, [ticker]);
 
   if (loading) return <div style={{ color: "#8B949E", fontSize: 12, padding: "12px 0" }}>Hírek betöltése...</div>;
