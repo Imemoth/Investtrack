@@ -8,6 +8,7 @@ import { DonutChart, Sparkline, Modal, Toast, LogModal } from "./components/ui";
 import { Header } from "./components/Header";
 import { InvestmentForm } from "./components/InvestmentForm";
 import { DetailModal } from "./components/DetailModal";
+import { BubbleChart } from "./components/BubbleChart";
 import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn } from "./components/DashboardWidgets";
 import { TransactionLog, addTransaction } from "./components/TransactionLog";
 import { AIAnalysis } from "./components/AIAnalysis";
@@ -274,13 +275,13 @@ export default function App() {
         {(stats.catBreakdown.length > 0 || stats.posBreakdown.length > 0) && (() => {
           const activeData = chartMode === "category" ? stats.catBreakdown : stats.posBreakdown;
           return (
-            <div style={{ ...S.card, marginBottom: 16 }}>
+            <div style={{ ...S.card, marginBottom: 16, padding: chartMode === "position" ? "14px 14px 0" : 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                 <span style={{ fontSize: 11, color: "#8B949E", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
                   {chartMode === "category" ? "Eszközosztályok" : "Pozíciók súlya"}
                 </span>
                 <div style={{ display: "flex", background: "#0D1117", borderRadius: 8, padding: 3, gap: 2 }}>
-                  {[["category", "🗂 Kategória"], ["position", "📊 Pozíció"]].map(([mode, label]) => (
+                  {[["category", "🗂 Kategória"], ["position", "🫧 Pozíció"]].map(([mode, label]) => (
                     <button key={mode} onClick={() => setChartMode(mode)} style={{
                       background: chartMode === mode ? "#21262D" : "none", border: "none", borderRadius: 6,
                       padding: "5px 10px", color: chartMode === mode ? "#E6EDF3" : "#8B949E",
@@ -289,27 +290,33 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
-                <div style={{ flexShrink: 0, cursor: "pointer", position: "relative" }}
-                  onClick={() => setChartMode(m => m === "category" ? "position" : "category")}>
-                  <DonutChart data={activeData} size={130} />
-                  <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 18, pointerEvents: "none" }}>
-                    {chartMode === "category" ? "🗂" : "📊"}
+
+              {chartMode === "category" ? (
+                <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ flexShrink: 0, cursor: "pointer", position: "relative" }}
+                    onClick={() => setChartMode("position")}>
+                    <DonutChart data={activeData} size={130} />
+                    <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 18, pointerEvents: "none" }}>🗂</div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 150, maxHeight: 200, overflowY: "auto" }}>
+                    {activeData.map(d => (
+                      <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
+                        <div style={{ flex: 1, fontSize: 12, color: "#C9D1D9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.fullName || d.label}>{d.label}</div>
+                        <div style={{ fontSize: 12, color: "#8B949E", flexShrink: 0, fontFamily: "'DM Mono', monospace" }}>{fmtNum(d.pct, 1)}%</div>
+                        <div style={{ width: 48, background: "#21262D", borderRadius: 4, height: 3, flexShrink: 0 }}>
+                          <div style={{ width: `${Math.min(d.pct, 100)}%`, background: d.color, borderRadius: 4, height: 3 }} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div style={{ flex: 1, minWidth: 150, maxHeight: 200, overflowY: "auto" }}>
-                  {activeData.map(d => (
-                    <div key={d.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: d.color, flexShrink: 0 }} />
-                      <div style={{ flex: 1, fontSize: 12, color: "#C9D1D9", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.fullName || d.label}>{d.label}</div>
-                      <div style={{ fontSize: 12, color: "#8B949E", flexShrink: 0, fontFamily: "'DM Mono', monospace" }}>{fmtNum(d.pct, 1)}%</div>
-                      <div style={{ width: 48, background: "#21262D", borderRadius: 4, height: 3, flexShrink: 0 }}>
-                        <div style={{ width: `${Math.min(d.pct, 100)}%`, background: d.color, borderRadius: 4, height: 3 }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              ) : (
+                <BubbleChart
+                  data={stats.posBreakdown}
+                  onSelect={item => setDetailInv(investments.find(i => (i.ticker || i.name) === item.label))}
+                />
+              )}
             </div>
           );
         })()}
