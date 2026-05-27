@@ -121,22 +121,44 @@ export function parseCSV(text) {
     }
     cols.push(cur); return cols;
   });
-  return rows.map(r => ({
-    id:           uid(),
-    name:         r[0] || "",
-    ticker:       r[1] || "",
-    category:     CATEGORIES.includes(r[2]) ? r[2] : "Egyéb",
-    currency:     CURRENCIES.includes(r[6]) ? r[6] : "HUF",
-    currentPrice: 0,
-    realizedPnL:  0,
-    sales:        [],
-    notes:        r[9] || "",
-    lots: [{
+
+  // Sor → lot objektum
+  const parsed = rows.map(r => ({
+    name:     r[0] || "",
+    ticker:   r[1] || "",
+    category: CATEGORIES.includes(r[2]) ? r[2] : "Egyéb",
+    currency: CURRENCIES.includes(r[6]) ? r[6] : "HUF",
+    lot: {
       id:       uid(),
       price:    parseFloat(r[3]) || 0,
       quantity: parseFloat(r[4]) || 0,
       date:     r[7] || "",
-      notes:    "",
-    }],
-  })).filter(r => r.name);
+      notes:    r[9] || "",
+    },
+    notes: r[9] || "",
+  })).filter(r => r.name && r.lot.quantity > 0);
+
+  // Ugyanaz a ticker → összevonás lots tömbbé
+  const byTicker = new Map();
+  for (const row of parsed) {
+    const key = row.ticker || row.name;
+    if (byTicker.has(key)) {
+      byTicker.get(key).lots.push(row.lot);
+    } else {
+      byTicker.set(key, {
+        id:           uid(),
+        name:         row.name,
+        ticker:       row.ticker,
+        category:     row.category,
+        currency:     row.currency,
+        currentPrice: 0,
+        realizedPnL:  0,
+        sales:        [],
+        notes:        row.notes,
+        lots:         [row.lot],
+      });
+    }
+  }
+
+  return Array.from(byTicker.values());
 }

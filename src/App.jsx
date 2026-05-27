@@ -567,8 +567,18 @@ export default function App() {
               placeholder={"Név,Ticker,Kategória,Vétel ár,Darab,Jelenlegi ár,Deviza,Vétel dátum,Megjegyzés"}
               value={importText} onChange={e => setImportText(e.target.value)}
             />
-            <div style={{ background: "#161B22", border: "1px solid #21262D", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#8B949E" }}>
-              <strong style={{ color: "#C9D1D9" }}>Oszlopsorrend:</strong> Név · Ticker · Kategória · Vétel ár · Darab · Jelenlegi ár · Deviza · Vétel dátum · Megjegyzés
+            <div style={{ background: theme.bg.inset, border: `1px solid ${theme.border.subtle}`, borderRadius: theme.radius.md, padding: "12px 14px", fontSize: 12, color: theme.text.secondary, lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 700, color: theme.text.primary, marginBottom: 4 }}>📋 Oszlopsorrend:</div>
+              <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: theme.accent.green, marginBottom: 10 }}>
+                Név · Ticker · Kategória · Vétel ár · Darab · Jelenlegi ár · Deviza · Vétel dátum · Megjegyzés
+              </div>
+              <div style={{ padding: "8px 10px", background: "rgba(110,231,183,0.05)", border: `1px solid rgba(110,231,183,0.18)`, borderRadius: theme.radius.sm }}>
+                <div style={{ fontWeight: 700, color: theme.accent.green, marginBottom: 4 }}>💡 Több vásárlás = ismételt sor ugyanazzal a Tickerrel:</div>
+                <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: theme.text.tertiary, whiteSpace: "pre", lineHeight: 1.8 }}>{
+`AMD,AMD,Részvény,180,0.05,0,HUF,2024-01-10,1. vétel
+AMD,AMD,Részvény,210,0.03,0,HUF,2024-06-15,2. vétel`}</div>
+                <div style={{ fontSize: 11, color: theme.text.tertiary, marginTop: 6 }}>→ 1 pozíció, 2 lot, automatikus átlagár</div>
+              </div>
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
               <button style={S.btn("ghost")} onClick={() => { setModal(null); setImportText(""); }}>Mégsem</button>
