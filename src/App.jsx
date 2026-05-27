@@ -37,8 +37,12 @@ export default function App() {
   const [displayCurrency, setDisplayCurrency] = useState("HUF");
   const [showTxLog,       setShowTxLog]       = useState(false);
   const [showAI,          setShowAI]          = useState(false);
-  const [featureModal,    setFeatureModal]    = useState(null); // "pnl"|"dca"|"tax"|"multi"|"push"
+  const [featureModal,    setFeatureModal]    = useState(null);
   const [isDark,          setIsDark]          = useState(() => localStorage.getItem("investtrack_theme") !== "light");
+  const [lastRefreshed,   setLastRefreshed]   = useState(() => {
+    const saved = localStorage.getItem("investtrack_last_refresh");
+    return saved ? new Date(saved) : null;
+  });
 
   const theme = isDark ? T : LIGHT_THEME;
   const toggleTheme = () => {
@@ -106,6 +110,9 @@ export default function App() {
         return updated;
       });
       const ok = results.size, fail = errors.length;
+      const now = new Date();
+      setLastRefreshed(now);
+      localStorage.setItem("investtrack_last_refresh", now.toISOString());
       showToast(fail > 0 ? `⚠️ ${ok} frissítve, ${fail} sikertelen: ${errors.join(", ")}` : `✓ ${ok} árfolyam frissítve!`, fail > 0 ? "info" : "success");
     } catch (e) {
       showToast(`❌ ${e.message}`, "error");
@@ -217,6 +224,22 @@ export default function App() {
   };
   const SortArrow = ({ col }) => sortBy === col ? (sortDir === "asc" ? " ↑" : " ↓") : " ↕";
 
+  // Utolsó frissítés formázása – újraszámol percenként
+  const [, forceUpdate] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceUpdate(v => v + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
+  const refreshLabel = useMemo(() => {
+    if (!lastRefreshed) return null;
+    const diff = Math.floor((Date.now() - lastRefreshed) / 1000);
+    if (diff < 60)    return "most frissült";
+    if (diff < 3600)  return `${Math.floor(diff / 60)} perce`;
+    if (diff < 86400) return lastRefreshed.toLocaleTimeString("hu-HU", { hour: "2-digit", minute: "2-digit" }) + "-kor";
+    return lastRefreshed.toLocaleDateString("hu-HU", { month: "short", day: "numeric" }) + " " +
+           lastRefreshed.toLocaleTimeString("hu-HU", { hour: "2-digit", minute: "2-digit" });
+  }, [lastRefreshed, forceUpdate]);
+
   // ── Render ──
   return (
     <div style={S.app}>
@@ -287,7 +310,14 @@ export default function App() {
             <div key={i} style={{ ...S.statCard, background: s.glow || theme.bg.surface, animation: `slideUp 0.3s ease ${i * 0.05}s both` }}>
               <div style={{ fontSize: 10, color: theme.text.tertiary, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: s.color, letterSpacing: "-0.02em", lineHeight: 1.2, wordBreak: "break-all" }}>{s.val}</div>
-              <div style={{ fontSize: 11, color: theme.text.tertiary, marginTop: 4 }}>{s.sub}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                <span style={{ fontSize: 11, color: theme.text.tertiary }}>{s.sub}</span>
+                {i === 0 && refreshLabel && (
+                  <span style={{ fontSize: 10, color: theme.text.tertiary, display: "flex", alignItems: "center", gap: 3 }}>
+                    🕐 {refreshLabel}
+                  </span>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -365,28 +395,37 @@ export default function App() {
         ) : isMobile ? (
           // ── Mobile cards ──
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* Utolsó frissítés banner */}
+            {refreshLabel && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "6px 12px", background: theme.bg.surface, border: `1px solid ${theme.border.subtle}`, borderRadius: theme.radius.md, fontSize: 11, color: theme.text.tertiary }}>
+                🕐 Árfolyamok: <span style={{ color: theme.text.secondary, fontWeight: 600 }}>{refreshLabel}</span>
+                <span style={{ color: theme.text.tertiary }}>· ~15 perces késleltetés</span>
+              </div>
+            )}
             {displayed.map(inv => {
               const { value, abs, pct } = calcPnL(inv);
               const up = abs >= 0;
               return (
-                <div key={inv.id} style={{ background: "#161B22", border: "1px solid #21262D", borderRadius: 12, padding: "14px 16px", cursor: "pointer" }}
-                  onClick={() => setDetailInv(inv)}>
+                <div key={inv.id} style={{ ...glassCard(theme, { padding: "14px 16px" }), cursor: "pointer", transition: theme.transition.fast }}
+                  onClick={() => setDetailInv(inv)}
+                  onMouseEnter={e => e.currentTarget.style.background = theme.bg.raised}
+                  onMouseLeave={e => e.currentTarget.style.background = theme.bg.surface}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 38, height: 38, borderRadius: 10, background: CATEGORY_COLORS[inv.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <div style={{ width: 38, height: 38, borderRadius: 10, background: CATEGORY_COLORS[inv.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${CATEGORY_COLORS[inv.category]}30` }}>
                         <span style={{ fontSize: 11, fontWeight: 800, color: CATEGORY_COLORS[inv.category], fontFamily: "'DM Mono', monospace" }}>{(inv.ticker || inv.name).slice(0, 4).toUpperCase()}</span>
                       </div>
                       <div>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: "#E6EDF3" }}>{inv.name}</div>
-                        <div style={{ fontSize: 11, color: "#8B949E", fontFamily: "'DM Mono', monospace" }}>{inv.ticker} · {inv.currency}</div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: theme.text.primary }}>{inv.name}</div>
+                        <div style={{ fontSize: 11, color: theme.text.tertiary, fontFamily: "'DM Mono', monospace" }}>{inv.ticker} · {inv.currency}</div>
                       </div>
                     </div>
                     <div style={{ textAlign: "right" }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, color: "#E6EDF3", fontFamily: "'DM Mono', monospace" }}>{fmtNum(value, 0)}</div>
-                      <div style={{ fontSize: 12, color: up ? "#6EE7B7" : "#FCA5A5", fontFamily: "'DM Mono', monospace" }}>{up ? "+" : ""}{fmtNum(pct, 2)}%</div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: theme.text.primary, fontFamily: "'DM Mono', monospace" }}>{fmtNum(value, 0)}</div>
+                      <div style={{ fontSize: 12, color: up ? theme.accent.green : theme.accent.red, fontFamily: "'DM Mono', monospace", fontWeight: 700 }}>{up ? "+" : ""}{fmtNum(pct, 2)}%</div>
                     </div>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, borderTop: "1px solid #21262D", paddingTop: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, borderTop: `1px solid ${theme.border.subtle}`, paddingTop: 10 }}>
                     {[["Vételár", fmtNum(inv.buyPrice, 0)], ["Mennyiség", fmtNum(inv.quantity, inv.quantity % 1 === 0 ? 0 : 4)], ["P&L", (up ? "+" : "") + fmtNum(abs, 0)]].map(([l, v], i) => (
                       <div key={i}>
                         <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", marginBottom: 2 }}>{l}</div>
