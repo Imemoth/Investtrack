@@ -1,4 +1,4 @@
-export const STORAGE_KEY = "investtrack_v1";
+export const STORAGE_KEY = "investtrack_v2"; // v2 - új adatmodell
 
 export const CATEGORIES = ["Részvény", "ETF", "Kötvény", "Kriptó", "Árupiaci", "Ingatlan", "Egyéb"];
 export const CURRENCIES = ["HUF", "EUR", "USD", "GBP"];
@@ -18,9 +18,33 @@ export const POSITION_PALETTE = [
   "#86EFAC","#FCD34D","#FDA4AF","#A5B4FC","#67E8F9","#BEF264","#FDBA74",
 ];
 
+// Egy "lot" = egy vétel esemény
+export const EMPTY_LOT = {
+  id: "",
+  price: "",
+  quantity: "",
+  date: "",
+  notes: "",
+};
+
+// Pozíció alap – lots tömbbel
 export const EMPTY_FORM = {
   name: "", ticker: "", category: "Részvény",
-  buyPrice: "", quantity: "", currentPrice: "",
-  currency: "HUF", buyDate: "", notes: "",
+  currency: "HUF", currentPrice: "",
   targetPrice: "", dividendYield: "",
+  notes: "",
+  // lots: [{id, price, quantity, date, notes}] – a form kezeli
+};
+
+// Realizált eladás rekord
+export const EMPTY_SALE = {
+  id: "",
+  invId: "",
+  name: "", ticker: "",
+  sellPrice: "",
+  quantity: "",
+  avgCostBasis: "", // FIFO átlag vételár az eladáskor
+  currency: "",
+  date: "",
+  notes: "",
 };

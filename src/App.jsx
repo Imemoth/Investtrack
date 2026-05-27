@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
-import { fmtNum, fmtCurrency, calcPnL, exportCSV, parseCSV } from "./utils";
+import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll } from "./utils";
 import { refreshAllPrices } from "./services/priceService";
 import { THEME as T, LIGHT_THEME, glassCard, haptic, KEYFRAMES } from "./design-system";
 
@@ -14,11 +14,19 @@ import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn } from "./compo
 import { TransactionLog, addTransaction } from "./components/TransactionLog";
 import { AIAnalysis } from "./components/AIAnalysis";
 import { FeatureModal } from "./components/FeatureModals";
+import { SellModal } from "./components/SellModal";
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
   // ── State ──
-  const [investments,     setInvestments]     = useState(() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; } });
+  const [investments,     setInvestments]     = useState(() => {
+    try {
+      // v1 → v2 migráció betöltéskor
+      const raw = JSON.parse(localStorage.getItem("investtrack_v2") || localStorage.getItem("investtrack_v1") || "[]");
+      return migrateAll(raw);
+    } catch { return []; }
+  });
+  const [sellInv,         setSellInv]         = useState(null);
   const [modal,           setModal]           = useState(null);
   const [editing,         setEditing]         = useState(null);
   const [search,          setSearch]          = useState("");
@@ -127,6 +135,17 @@ export default function App() {
     showToast("Árak nullázva – nyomj Árfolyam frissítésre!", "info");
   };
 
+  const handleSell = ({ updatedInv, sale, fullyClose }) => {
+    setInvestments(prev => {
+      if (fullyClose) return prev.filter(i => i.id !== updatedInv.id);
+      return prev.map(i => i.id === updatedInv.id ? updatedInv : i);
+    });
+    setSellInv(null);
+    addTransaction({ ...updatedInv, ...sale }, "sell");
+    const pnlStr = (sale.realizedPnL >= 0 ? "+" : "") + fmtNum(sale.realizedPnL, 0) + " " + sale.currency;
+    showToast(`Eladás rögzítve! Realizált P&L: ${pnlStr}`, sale.realizedPnL >= 0 ? "success" : "info");
+  };
+
   // ── CRUD ──
   const saveInvestment = useCallback(inv => {
     setInvestments(prev => {
@@ -192,12 +211,13 @@ export default function App() {
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
 
+    const totalRealizedPnL = investments.reduce((s, i) => s + (i.realizedPnL || 0), 0);
     const totalDividend = investments.reduce((s, i) => {
       if (!i.dividendYield || !i.currentPrice) return s;
       return s + (parseFloat(i.dividendYield) / 100) * i.currentPrice * i.quantity;
     }, 0);
 
-    return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend };
+    return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL };
   }, [investments]);
 
   // ── Filtered & sorted list ──
@@ -301,11 +321,12 @@ export default function App() {
           {[
             { label: "Portfólió értéke",    val: fmtCurrency(stats.totalValue, "HUF"),  sub: `${investments.length} pozíció`,   color: theme.text.primary,  glow: null },
             { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"),  sub: "Összes vételár",                   color: theme.text.secondary,glow: null },
-            { label: "Nyereség / Veszteség",val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
+            { label: "Papír nyereség",    val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
                                              sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,
                                              color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red,
                                              glow: stats.totalPnL >= 0 ? "rgba(110,231,183,0.12)" : "rgba(252,165,165,0.12)" },
-            { label: "💰 Éves osztalék",    val: stats.totalDividend > 0 ? fmtCurrency(stats.totalDividend, "HUF") : "—", sub: "becsült bruttó", color: theme.accent.yellow, glow: null },
+            { label: "💰 Realizált P&L",  val: stats.totalRealizedPnL !== 0 ? (stats.totalRealizedPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalRealizedPnL, "HUF") : "—",
+                                             sub: "lezárt pozíciókból", color: stats.totalRealizedPnL >= 0 ? theme.accent.green : theme.accent.red, glow: null },
           ].map((s, i) => (
             <div key={i} style={{ ...S.statCard, background: s.glow || theme.bg.surface, animation: `slideUp 0.3s ease ${i * 0.05}s both` }}>
               <div style={{ fontSize: 10, color: theme.text.tertiary, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
@@ -434,10 +455,12 @@ export default function App() {
                     ))}
                   </div>
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }} onClick={e => e.stopPropagation()}>
+                    <button onClick={() => setSellInv(inv)}
+                      style={{ background: "rgba(252,165,165,0.1)", border: `1px solid rgba(252,165,165,0.3)`, borderRadius: theme.radius.md, padding: "6px 12px", color: theme.accent.red, cursor: "pointer", fontSize: 12, fontFamily: "inherit", fontWeight: 600 }}>📤 Eladás</button>
                     <button onClick={() => { setEditing(inv); setModal("edit"); }}
-                      style={{ background: "#21262D", border: "none", borderRadius: 6, padding: "6px 12px", color: "#C9D1D9", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>✏️ Szerkesztés</button>
+                      style={{ background: theme.bg.surface, border: `1px solid ${theme.border.default}`, borderRadius: theme.radius.md, padding: "6px 12px", color: theme.text.secondary, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>✏️</button>
                     <button onClick={() => setConfirmDelete(inv)}
-                      style={{ background: "none", border: "1px solid #3D1A1A", borderRadius: 6, padding: "6px 12px", color: "#FCA5A5", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🗑️</button>
+                      style={{ background: "none", border: `1px solid rgba(252,165,165,0.2)`, borderRadius: theme.radius.md, padding: "6px 10px", color: theme.accent.red, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🗑️</button>
                   </div>
                 </div>
               );
@@ -571,6 +594,8 @@ export default function App() {
         <DetailModal inv={detailInv} onClose={() => setDetailInv(null)}
           onEdit={() => { setEditing(detailInv); setDetailInv(null); setModal("edit"); }} />
       )}
+
+      {sellInv && <SellModal inv={sellInv} onSell={handleSell} onClose={() => setSellInv(null)} />}
 
       {showTxLog && <TransactionLog onClose={() => setShowTxLog(false)} />}
       {showAI    && <AIAnalysis investments={investments} onClose={() => setShowAI(false)} />}
