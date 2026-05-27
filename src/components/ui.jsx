@@ -3,7 +3,137 @@ import { appLog } from "../services/logger";
 import { THEME as T, glassCard, haptic } from "../design-system";
 import { fmtNum } from "../utils";
 
-// ─── DONUT CHART ──────────────────────────────────────────────────────────────
+// ─── SKELETON ─────────────────────────────────────────────────────────────────
+function Sk({ w = "100%", h = 16, r = 6, style = {} }) {
+  return (
+    <div style={{
+      width: w, height: h, borderRadius: r,
+      background: `linear-gradient(90deg, ${T.bg.surface} 25%, ${T.bg.raised} 50%, ${T.bg.surface} 75%)`,
+      backgroundSize: "200% 100%",
+      animation: "shimmer 1.6s infinite",
+      flexShrink: 0,
+      ...style,
+    }} />
+  );
+}
+
+// Stat kártya skeleton (2x2 grid)
+export function StatCardsSkeleton() {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+      {[0,1,2,3].map(i => (
+        <div key={i} style={{ ...glassCard(T, { padding: 16 }), display: "flex", flexDirection: "column", gap: 10 }}>
+          <Sk w="60%" h={10} />
+          <Sk w="80%" h={24} r={8} />
+          <Sk w="40%" h={10} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Befektetés kártya skeleton (mobil lista)
+export function InvestmentCardSkeleton() {
+  return (
+    <div style={{ ...glassCard(T, { padding: "14px 16px" }), display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Sk w={38} h={38} r={10} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <Sk w={100} h={13} />
+            <Sk w={60} h={10} />
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+          <Sk w={70} h={14} />
+          <Sk w={50} h={10} />
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, paddingTop: 10, borderTop: `1px solid ${T.border.subtle}` }}>
+        {[0,1,2].map(i => (
+          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            <Sk w="50%" h={9} />
+            <Sk w="80%" h={12} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Teljes portfólió skeleton
+export function PortfolioSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <StatCardsSkeleton />
+      {/* Chart skeleton */}
+      <div style={{ ...glassCard(T, { padding: 16 }), marginBottom: 6 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
+          <Sk w={120} h={11} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <Sk w={80} h={28} r={8} />
+            <Sk w={80} h={28} r={8} />
+          </div>
+        </div>
+        <Sk w="100%" h={130} r={10} />
+      </div>
+      {/* Keresés skeleton */}
+      <Sk w="100%" h={40} r={8} style={{ marginBottom: 6 }} />
+      {/* Kártyák */}
+      {[0,1,2,3].map(i => (
+        <InvestmentCardSkeleton key={i} />
+      ))}
+    </div>
+  );
+}
+
+// Dashboard skeleton
+export function DashboardSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {[0,1,2,3].map(i => (
+          <div key={i} style={{ ...glassCard(T, { padding: 16 }), display: "flex", flexDirection: "column", gap: 10 }}>
+            <Sk w="55%" h={10} />
+            <Sk w="75%" h={22} r={8} />
+            <Sk w="40%" h={10} />
+          </div>
+        ))}
+      </div>
+      {/* Top movers */}
+      <div style={glassCard(T, { padding: 16 })}>
+        <Sk w={120} h={11} style={{ marginBottom: 14 }} />
+        {[0,1,2].map(i => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${T.border.subtle}` }}>
+            <Sk w={22} h={22} r={11} />
+            <Sk w={34} h={34} r={8} />
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 5 }}>
+              <Sk w="60%" h={12} />
+              <Sk w="40%" h={10} />
+            </div>
+            <Sk w={70} h={28} r={6} />
+          </div>
+        ))}
+      </div>
+      {/* Chart widget */}
+      <div style={glassCard(T, { padding: 16 })}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
+          <Sk w={150} h={11} />
+          <div style={{ display: "flex", gap: 4 }}>
+            {[0,1,2].map(i => <Sk key={i} w={40} h={26} r={6} />)}
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+          <Sk w="100%" h={60} r={10} />
+          <Sk w="100%" h={60} r={10} />
+        </div>
+        <Sk w="100%" h={100} r={8} />
+      </div>
+    </div>
+  );
+}
+
+
 export function DonutChart({ data, size = 180 }) {
   const total = data.reduce((s, d) => s + d.value, 0);
   if (total === 0) return null;

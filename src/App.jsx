@@ -5,7 +5,7 @@ import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV,
 import { refreshAllPrices } from "./services/priceService";
 import { THEME as T, LIGHT_THEME, glassCard, haptic, KEYFRAMES } from "./design-system";
 
-import { DonutChart, Sparkline, Modal, Toast, LogModal } from "./components/ui";
+import { DonutChart, Sparkline, Modal, Toast, LogModal, PortfolioSkeleton, DashboardSkeleton } from "./components/ui";
 import { Header } from "./components/Header";
 import { InvestmentForm } from "./components/InvestmentForm";
 import { DetailModal } from "./components/DetailModal";
@@ -51,6 +51,13 @@ export default function App() {
     const saved = localStorage.getItem("investtrack_last_refresh");
     return saved ? new Date(saved) : null;
   });
+  const [isBooting,       setIsBooting]       = useState(true);
+
+  // Rövid boot delay – fonts + layout betöltés
+  useEffect(() => {
+    const t = setTimeout(() => setIsBooting(false), 600);
+    return () => clearTimeout(t);
+  }, []);
 
   const theme = isDark ? T : LIGHT_THEME;
   const toggleTheme = () => {
@@ -285,6 +292,26 @@ export default function App() {
       />
 
       <main style={S.main}>
+
+        {/* ── SKELETON – betöltés közben ── */}
+        {isBooting && (
+          activeTab === "dashboard"
+            ? <DashboardSkeleton />
+            : <PortfolioSkeleton />
+        )}
+
+        {/* ── SKELETON – árfolyamfrissítés közben ── */}
+        {!isBooting && refreshing && (
+          <div style={{ position: "fixed", bottom: 80, left: "50%", transform: "translateX(-50%)", background: T.bg.overlay, border: `1px solid ${T.border.default}`, backdropFilter: "blur(16px)", borderRadius: 12, padding: "10px 18px", display: "flex", alignItems: "center", gap: 10, zIndex: 30, boxShadow: T.shadow.raised }}>
+            <svg width="14" height="14" fill="none" viewBox="0 0 16 16" style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}>
+              <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke={T.accent.green} strokeWidth="1.7" strokeLinecap="round"/>
+              <path d="M8 1v3.5L10.5 2 8 1z" fill={T.accent.green}/>
+            </svg>
+            <span style={{ fontSize: 13, color: T.text.primary, fontWeight: 600 }}>{refreshProgress || "Frissítés..."}</span>
+          </div>
+        )}
+
+        {!isBooting && <>
 
         {/* ── DASHBOARD TAB ── */}
         {activeTab === "dashboard" && (
@@ -543,6 +570,7 @@ export default function App() {
           </div>
         )}
         </>)}
+        </> /* isBooting */}
       </main>
 
       {/* ── Modals ── */}
