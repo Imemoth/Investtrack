@@ -47,6 +47,7 @@ export default function App() {
   const [showTxLog,       setShowTxLog]       = useState(false);
   const [showAI,          setShowAI]          = useState(false);
   const [featureModal,    setFeatureModal]    = useState(null);
+  const [confirmClear,    setConfirmClear]    = useState(false);
   const [isDark,          setIsDark]          = useState(() => localStorage.getItem("investtrack_theme") !== "light");
   const [lastRefreshed,   setLastRefreshed]   = useState(() => {
     const saved = localStorage.getItem("investtrack_last_refresh");
@@ -141,6 +142,17 @@ export default function App() {
   const handleResetPrices = () => {
     setInvestments(prev => prev.map(inv => ({ ...inv, currentPrice: 0 })));
     showToast("Árak nullázva – nyomj Árfolyam frissítésre!", "info");
+  };
+
+  const handleClearPortfolio = () => {
+    setInvestments([]);
+    localStorage.removeItem("investtrack_v2");
+    localStorage.removeItem("investtrack_v1");
+    localStorage.removeItem("investtrack_last_refresh");
+    setLastRefreshed(null);
+    setConfirmClear(false);
+    haptic("heavy");
+    showToast("Portfólió törölve — importálhatod az újat!", "info");
   };
 
   const handleSell = ({ updatedInv, sale, fullyClose }) => {
@@ -307,6 +319,7 @@ export default function App() {
         onTax={() => setFeatureModal("tax")}
         onMulti={() => setFeatureModal("multi")}
         onPush={() => setFeatureModal("push")}
+        onClearPortfolio={() => setConfirmClear(true)}
         isDark={isDark}
         onToggleTheme={toggleTheme}
       />
@@ -667,6 +680,26 @@ AMD,AMD,Részvény,210,0.03,0,HUF,2024-06-15,2. vétel`}</div>
       {detailInv && (
         <DetailModal inv={detailInv} onClose={() => setDetailInv(null)}
           onEdit={() => { setEditing(detailInv); setDetailInv(null); setModal("edit"); }} />
+      )}
+
+      {confirmClear && (
+        <Modal title="⚠️ Portfólió törlése" onClose={() => setConfirmClear(false)}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.25)", borderRadius: theme.radius.md, padding: 16, fontSize: 13, color: theme.text.secondary, lineHeight: 1.7 }}>
+              <div style={{ fontWeight: 700, color: theme.accent.red, marginBottom: 8 }}>Ez a művelet nem visszavonható!</div>
+              Törlöd az összes <strong style={{ color: theme.text.primary }}>{investments.length} pozíciót</strong> és az árfolyam historikát. Utána importálhatod az XTB XLSX exportot.
+            </div>
+            <div style={{ fontSize: 12, color: theme.text.tertiary }}>
+              💡 Tipp: előbb exportáld a jelenlegi adatokat (CSV Export), hogy meglegyen biztonsági másolat.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button style={S.btn("ghost")} onClick={() => setConfirmClear(false)}>Mégsem</button>
+              <button onClick={handleClearPortfolio} style={{ background: "rgba(252,165,165,0.15)", border: "1px solid rgba(252,165,165,0.4)", borderRadius: theme.radius.md, padding: "10px 20px", color: theme.accent.red, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
+                🗑️ Portfólió törlése
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {sellInv && <SellModal inv={sellInv} onSell={handleSell} onClose={() => setSellInv(null)} />}

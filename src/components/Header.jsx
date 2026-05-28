@@ -10,6 +10,7 @@ export function Header({
   onNewInvestment,
   onTxLog, onAI, onLog,
   onPnL, onDCA, onTax, onMulti, onPush,
+  onClearPortfolio,
   isDark, onToggleTheme,
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -201,6 +202,9 @@ export function Header({
           </button>
           <MenuItem icon="🔔" label="Push értesítések"   onClick={onPush} />
           <MenuItem icon="🔁" label="Árak nullázása"     onClick={onResetPrices} />
+
+          <Divider label="Veszélyzóna" />
+          <MenuItem icon="🗑️" label="Portfólió törlése"  onClick={onClearPortfolio} color={T.accent.red} />
 
           <Divider label="Fejlesztő" />
           <MenuItem icon="🪲" label="Debug log"          onClick={onLog} />
