@@ -4,6 +4,7 @@
 
 import * as XLSX from "xlsx";
 import { uid } from "../utils";
+import { appLog } from "./logger";
 
 function cleanTicker(xtbTicker) {
   if (!xtbTicker) return "";
@@ -41,6 +42,7 @@ function excelDateToStr(val) {
 
 export function parseXTBFile(arrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: "array", cellDates: true });
+  appLog.info(`XTB import: sheet-ek: ${wb.SheetNames.join(", ")}`);
 
   const positions = new Map();
 
@@ -129,20 +131,24 @@ export function parseXTBFile(arrayBuffer) {
   }
 
   // ── 3. Szűrés: csak nyitott pozíciók ────────────────────────────────────────
-  // Nyitott = van OPEN BUY (lot) ÉS a lotok mennyisége > eladott mennyiség
   const result = [];
   for (const pos of positions.values()) {
     const totalBought = pos.lots.reduce((s, l) => s + l.quantity, 0);
     const totalSold   = pos.sales.reduce((s, s2) => s + s2.qty, 0);
-    const remaining   = Math.round((totalBought - totalSold) * 1e8) / 1e8; // float kerekítés
+    const remaining   = Math.round((totalBought - totalSold) * 1e8) / 1e8;
 
-    if (pos.lots.length === 0 || remaining <= 0.000001) continue; // teljesen lezárt
+    appLog.info(`XTB pozíció: ${pos.xtbTicker} | lots=${pos.lots.length} bought=${totalBought.toFixed(4)} sold=${totalSold.toFixed(4)} remaining=${remaining.toFixed(4)}`);
+
+    if (pos.lots.length === 0 || remaining <= 0.000001) {
+      appLog.info(`→ KIHAGYVA (lezárt): ${pos.xtbTicker}`);
+      continue;
+    }
 
     const { xtbTicker, dividends, ...clean } = pos;
     if (dividends > 0) clean.notes += ` · Osztalék: ${dividends.toFixed(2)} HUF`;
-
     result.push(clean);
   }
 
+  appLog.info(`✓ XTB import kész: ${result.length} nyitott pozíció`);
   return result;
 }

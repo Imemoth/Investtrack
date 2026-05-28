@@ -194,7 +194,22 @@ export default function App() {
     try {
       const parsed = parseCSV(importText);
       if (!parsed.length) throw new Error("Nem találtam adatsort");
-      setInvestments(prev => [...prev, ...parsed]);
+      if (investments.length > 0) {
+        const choice = window.confirm(
+          `${parsed.length} pozíciót találtam.\n\n` +
+          `OK = Csere (jelenlegi ${investments.length} pozíció törlődik)\n` +
+          `Mégse = Hozzáadás a meglévőkhöz`
+        );
+        if (choice) {
+          setInvestments(parsed);
+          localStorage.removeItem("investtrack_last_refresh");
+          setLastRefreshed(null);
+        } else {
+          setInvestments(prev => [...prev, ...parsed]);
+        }
+      } else {
+        setInvestments(parsed);
+      }
       setModal(null); setImportText("");
       showToast(`${parsed.length} befektetés importálva!`);
     } catch (e) { showToast("Import hiba: " + e.message, "error"); }
@@ -211,9 +226,27 @@ export default function App() {
         try {
           const parsed = parseXTBFile(ev.target.result);
           if (!parsed.length) throw new Error("Nem találtam nyitott pozíciókat");
-          setInvestments(prev => [...prev, ...parsed]);
+          // Ha van meglévő adat → kérdezünk
+          if (investments.length > 0) {
+            const choice = window.confirm(
+              `${parsed.length} pozíciót találtam az XTB fájlban.\n\n` +
+              `OK = Csere (jelenlegi ${investments.length} pozíció törlődik)\n` +
+              `Mégse = Hozzáadás a meglévőkhöz`
+            );
+            if (choice) {
+              setInvestments(parsed);
+              localStorage.removeItem("investtrack_last_refresh");
+              setLastRefreshed(null);
+              showToast(`✓ XTB import: ${parsed.length} pozíció (csere)!`);
+            } else {
+              setInvestments(prev => [...prev, ...parsed]);
+              showToast(`✓ XTB import: ${parsed.length} pozíció hozzáadva!`);
+            }
+          } else {
+            setInvestments(parsed);
+            showToast(`✓ XTB import: ${parsed.length} pozíció betöltve!`);
+          }
           setModal(null);
-          showToast(`✓ XTB import: ${parsed.length} pozíció betöltve!`);
         } catch (err) {
           showToast("XTB import hiba: " + err.message, "error");
         }
@@ -230,7 +263,7 @@ export default function App() {
 
   // ── Stats ──
   const stats = useMemo(() => {
-    const totalCost  = investments.reduce((s, i) => s + i.buyPrice * i.quantity, 0);
+    const totalCost  = investments.reduce((s, i) => s + calcPnL(i).cost, 0);
     const totalValue = investments.reduce((s, i) => s + i.currentPrice * i.quantity, 0);
     const totalPnL   = totalValue - totalCost;
     const totalPct   = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
@@ -507,7 +540,7 @@ export default function App() {
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, borderTop: `1px solid ${theme.border.subtle}`, paddingTop: 10 }}>
-                    {[["Vételár", fmtNum(inv.buyPrice, 0)], ["Mennyiség", fmtNum(inv.quantity, inv.quantity % 1 === 0 ? 0 : 4)], ["P&L", (up ? "+" : "") + fmtNum(abs, 0)]].map(([l, v], i) => (
+                    {[["Vételár", fmtNum(calcPnL(inv).avgBuyPrice, 2)], ["Mennyiség", fmtNum(calcPnL(inv).quantity, calcPnL(inv).quantity % 1 === 0 ? 0 : 4)], ["P&L", (up ? "+" : "") + fmtNum(abs, 0)]].map(([l, v], i) => (
                       <div key={i}>
                         <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", marginBottom: 2 }}>{l}</div>
                         <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: i === 2 ? (up ? "#6EE7B7" : "#FCA5A5") : "#C9D1D9" }}>{v}</div>
@@ -565,8 +598,8 @@ export default function App() {
                         <span style={{ background: CATEGORY_COLORS[inv.category] + "20", color: CATEGORY_COLORS[inv.category], borderRadius: 6, padding: "3px 8px", fontSize: 11, fontWeight: 700 }}>{inv.category}</span>
                       </td>
                       <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", fontWeight: 600 }}>{fmtNum(value)}</td>
-                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", color: "#8B949E" }}>{fmtNum(inv.buyPrice)}</td>
-                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", color: "#8B949E" }}>{fmtNum(inv.quantity, inv.quantity % 1 === 0 ? 0 : 4)}</td>
+                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", color: theme.text.secondary }}>{fmtNum(calcPnL(inv).avgBuyPrice)}</td>
+                      <td style={{ ...S.td, textAlign: "right", fontFamily: "'DM Mono', monospace", color: theme.text.secondary }}>{fmtNum(calcPnL(inv).quantity, calcPnL(inv).quantity % 1 === 0 ? 0 : 4)}</td>
                       <td style={{ ...S.td, textAlign: "right" }}>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
                           <Sparkline pct={pct} />
