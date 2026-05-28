@@ -3,6 +3,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
 import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll } from "./utils";
 import { refreshAllPrices } from "./services/priceService";
+import { parseXTBFile } from "./services/xtbImporter";
 import { THEME as T, LIGHT_THEME, glassCard, haptic, KEYFRAMES } from "./design-system";
 
 import { DonutChart, Sparkline, Modal, Toast, LogModal, PortfolioSkeleton, DashboardSkeleton } from "./components/ui";
@@ -190,9 +191,28 @@ export default function App() {
   const handleFileImport = e => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => setImportText(ev.target.result);
-    reader.readAsText(file, "UTF-8");
+
+    // XTB XLSX felismerés
+    if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const parsed = parseXTBFile(ev.target.result);
+          if (!parsed.length) throw new Error("Nem találtam nyitott pozíciókat");
+          setInvestments(prev => [...prev, ...parsed]);
+          setModal(null);
+          showToast(`✓ XTB import: ${parsed.length} pozíció betöltve!`);
+        } catch (err) {
+          showToast("XTB import hiba: " + err.message, "error");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      // CSV
+      const reader = new FileReader();
+      reader.onload = ev => setImportText(ev.target.result);
+      reader.readAsText(file, "UTF-8");
+    }
     e.target.value = "";
   };
 
@@ -581,17 +601,33 @@ export default function App() {
       )}
 
       {modal === "import" && (
-        <Modal title="CSV Import" onClose={() => { setModal(null); setImportText(""); }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: "#0D1117", border: "1px dashed #30363D", borderRadius: 8, padding: "24px", textAlign: "center" }}>
-              <div style={{ fontSize: 13, color: "#8B949E", marginBottom: 12 }}>Húzd ide a CSV fájlt, vagy</div>
-              <label style={{ ...S.btn("ghost"), display: "inline-flex", cursor: "pointer" }}>
-                📁 Fájl kiválasztása
-                <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={handleFileImport} />
+        <Modal title="Import" onClose={() => { setModal(null); setImportText(""); }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* XTB közvetlen import */}
+            <div style={{ ...glassCard(theme, { padding: 16 }), background: "rgba(110,231,183,0.06)", border: `1px solid rgba(110,231,183,0.25)` }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: theme.accent.green, marginBottom: 6 }}>🏦 XTB közvetlen import (ajánlott)</div>
+              <div style={{ fontSize: 12, color: theme.text.secondary, marginBottom: 10, lineHeight: 1.6 }}>
+                Töltsd le az XTB XLSX exportot — automatikusan felismeri a pozíciókat, lotokat és realizált P&L-t.
+              </div>
+              <div style={{ fontSize: 11, color: theme.text.tertiary, marginBottom: 12, background: theme.bg.inset, borderRadius: theme.radius.sm, padding: "8px 10px", lineHeight: 1.7 }}>
+                xStation5 → <strong style={{ color: theme.text.secondary }}>Account History</strong> → Export → <strong style={{ color: theme.text.secondary }}>Full Report</strong> → <strong style={{ color: theme.text.secondary }}>Excel</strong>
+              </div>
+              <label style={{ ...S.btn("primary"), display: "inline-flex", cursor: "pointer", justifyContent: "center" }}>
+                📥 XTB XLSX feltöltése
+                <input type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleFileImport} />
               </label>
             </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ flex: 1, height: 1, background: theme.border.subtle }} />
+              <span style={{ fontSize: 11, color: theme.text.tertiary }}>vagy CSV manuálisan</span>
+              <div style={{ flex: 1, height: 1, background: theme.border.subtle }} />
+            </div>
+            <label style={{ ...S.btn("ghost"), display: "inline-flex", cursor: "pointer", justifyContent: "center" }}>
+              📁 CSV feltöltése
+              <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={handleFileImport} />
+            </label>
             <textarea
-              style={{ width: "100%", background: "#0D1117", border: "1px solid #30363D", borderRadius: 8, padding: "10px 12px", color: "#E6EDF3", fontSize: 12, fontFamily: "'DM Mono', monospace", minHeight: 100, resize: "vertical", boxSizing: "border-box", outline: "none" }}
+              style={{ width: "100%", background: theme.bg.inset, border: `1px solid ${theme.border.default}`, borderRadius: theme.radius.md, padding: "10px 12px", color: theme.text.primary, fontSize: 12, fontFamily: "'DM Mono', monospace", minHeight: 80, resize: "vertical", boxSizing: "border-box", outline: "none" }}
               placeholder={"Név,Ticker,Kategória,Vétel ár,Darab,Jelenlegi ár,Deviza,Vétel dátum,Megjegyzés"}
               value={importText} onChange={e => setImportText(e.target.value)}
             />
