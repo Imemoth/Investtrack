@@ -128,12 +128,16 @@ export function parseXTBFile(arrayBuffer) {
     }
   }
 
-  // ── 3. Szűrés: csak nyitott pozíciók (van lot) ───────────────────────────
+  // ── 3. Szűrés: csak nyitott pozíciók ────────────────────────────────────────
+  // Nyitott = van OPEN BUY (lot) ÉS a lotok mennyisége > eladott mennyiség
   const result = [];
   for (const pos of positions.values()) {
-    if (pos.lots.length === 0) continue; // lezárt pozíció, kihagyjuk
+    const totalBought = pos.lots.reduce((s, l) => s + l.quantity, 0);
+    const totalSold   = pos.sales.reduce((s, s2) => s + s2.qty, 0);
+    const remaining   = Math.round((totalBought - totalSold) * 1e8) / 1e8; // float kerekítés
 
-    // Cleanup: felesleges mezők törlése az export előtt
+    if (pos.lots.length === 0 || remaining <= 0.000001) continue; // teljesen lezárt
+
     const { xtbTicker, dividends, ...clean } = pos;
     if (dividends > 0) clean.notes += ` · Osztalék: ${dividends.toFixed(2)} HUF`;
 
