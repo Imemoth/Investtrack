@@ -271,7 +271,7 @@ const PENDING_KEY = "investtrack_pending_v1";
 export function loadPending()  { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]"); } catch { return []; } }
 export function savePending(p) { localStorage.setItem(PENDING_KEY, JSON.stringify(p)); }
 
-const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", currency:"USD", quantity:"", expiry:"", notes:"" };
+const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", currency:"USD", quantity:"", fxRate:"", hufValue:"", expiry:"", notes:"" };
 const TYPE_COLOR  = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
 export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
@@ -282,7 +282,18 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
 
   const limitPrice  = parseFloat(form.limitPrice) || 0;
   const quantity    = parseFloat(form.quantity)   || 0;
+  const fxRate      = parseFloat(form.fxRate)     || 0;
   const totalNative = limitPrice * quantity;
+  const liveRate    = fxRates[form.currency] || 0;
+  const effectiveFx = fxRate || liveRate;
+  const hufManual   = parseFloat(form.hufValue) || 0;
+  const hufAuto     = form.currency === "HUF" ? totalNative : (effectiveFx > 0 ? totalNative * effectiveFx : 0);
+  const hufTotal    = hufManual > 0 ? hufManual : hufAuto;
+
+  const handleCurrencyChange = (cur) => {
+    setForm(p => ({ ...p, currency: cur, fxRate: (cur !== "HUF" && fxRates[cur] && !p.fxRate) ? String(Math.round(fxRates[cur])) : p.fxRate }));
+  };
+
 
   // Konverzió HUF-ba: ha pl. USD → HUF, fxRates.USD = 360
   const toHuf = (amount, currency) => {
@@ -315,8 +326,13 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
 
   const addOrder = () => {
     if (!form.name.trim() || !limitPrice) return;
-    const order = { ...form, id: Date.now().toString(36), createdAt: new Date().toISOString(),
-      limitPrice, quantity, totalNative };
+    const order = {
+      ...form,
+      id: Date.now().toString(36), createdAt: new Date().toISOString(),
+      limitPrice, quantity, totalNative,
+      hufTotal:    hufTotal > 0 ? Math.round(hufTotal) : null,
+      savedFxRate: fxRate || effectiveFx || null,
+    };
     const next = [...orders, order];
     setOrders(next); savePending(next);
     setForm(EMPTY_ORDER); setShowAdd(false);
@@ -407,29 +423,52 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
             </div>
             <div>
               <L>Deviza</L>
-              <select style={inputS} value={form.currency} onChange={e=>f("currency",e.target.value)}>
+              <select style={inputS} value={form.currency} onChange={e=>handleCurrencyChange(e.target.value)}>
                 {["USD","EUR","HUF","GBP"].map(c=><option key={c}>{c}</option>)}
               </select>
             </div>
           </div>
 
-          {/* Sor 4: Mennyiség + auto érték */}
+          {/* Sor 4: Mennyiség + FX árfolyam (ha nem HUF) */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
             <div>
               <L>Mennyiség (db)</L>
               <input style={inputS} type="number" value={form.quantity} onChange={e=>f("quantity",e.target.value)} placeholder="pl. 0.2852"/>
             </div>
-            <div>
-              <L>Megbízás értéke</L>
-              <div style={{
-                ...inputS, background: totalNative > 0 ? "rgba(110,231,183,0.06)" : T.bg.inset,
-                border:`1px solid ${totalNative > 0 ? T.accent.green+"40" : T.border.subtle}`,
-                color: totalNative > 0 ? T.accent.green : T.text.tertiary,
-                fontFamily:"'DM Mono',monospace", fontWeight:700,
-              }}>
-                {totalNative > 0 ? `${fmtNum(totalNative, 2)} ${form.currency}` : "— auto"}
+            {form.currency !== "HUF" && (
+              <div>
+                <L>{form.currency}/HUF árfolyam</L>
+                <input style={inputS} type="number" value={form.fxRate}
+                  onChange={e=>f("fxRate",e.target.value)}
+                  placeholder={liveRate > 0 ? `auto: ${Math.round(liveRate)}` : "pl. 302"}
+                />
               </div>
-            </div>
+            )}
+          </div>
+
+          {/* Sor 5: HUF érték (számított vagy kézzel) */}
+          <div>
+            <L>
+              Érték HUF-ban
+              {hufAuto > 0 && !hufManual && <span style={{ color:T.accent.green, marginLeft:6, textTransform:"none", letterSpacing:0 }}>auto: {fmtNum(hufAuto, 0)} Ft</span>}
+            </L>
+            <input style={{
+              ...inputS,
+              background: hufTotal > 0 ? "rgba(110,231,183,0.06)" : T.bg.inset,
+              border:`1px solid ${hufTotal > 0 ? T.accent.green+"40" : T.border.subtle}`,
+              color: hufTotal > 0 ? T.accent.green : T.text.tertiary,
+              fontFamily:"'DM Mono',monospace",
+            }}
+              type="number"
+              value={form.hufValue || (hufAuto > 0 ? Math.round(hufAuto) : "")}
+              onChange={e=>f("hufValue",e.target.value)}
+              placeholder="Kézzel felülírható"
+            />
+            {form.currency !== "HUF" && !fxRate && !liveRate && (
+              <div style={{ fontSize:10, color:T.accent.yellow, marginTop:4 }}>
+                ⚠️ Add meg az {form.currency}/HUF árfolyamot a pontos HUF értékhez
+              </div>
+            )}
           </div>
 
           {/* Sor 5: Lejárat */}
@@ -472,6 +511,7 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
               <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace", marginTop:2 }}>
                 {fmtNum(o.limitPrice, 2)} {o.currency}
                 {o.quantity > 0 && ` · ${fmtNum(o.quantity, 4)} db`}
+                {o.savedFxRate > 0 && o.currency !== "HUF" && ` · fx: ${fmtNum(o.savedFxRate, 0)}`}
                 {o.expiry && ` · ${o.expiry}-ig`}
               </div>
             </div>
