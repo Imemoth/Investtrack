@@ -11,7 +11,7 @@ import { Header } from "./components/Header";
 import { InvestmentForm } from "./components/InvestmentForm";
 import { DetailModal } from "./components/DetailModal";
 import { BubbleChart } from "./components/BubbleChart";
-import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn, PendingOrders } from "./components/DashboardWidgets";
+import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn, PendingOrders, loadPending } from "./components/DashboardWidgets";
 import { TransactionLog, addTransaction } from "./components/TransactionLog";
 import { AIAnalysis } from "./components/AIAnalysis";
 import { FeatureModal } from "./components/FeatureModals";
@@ -309,7 +309,12 @@ export default function App() {
       return s + (parseFloat(i.dividendYield) / 100) * calcPnL(i).value;
     }, 0);
 
-    return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL };
+    const pendingTotal = loadPending().reduce((s, o) => {
+      const v = parseFloat(o.totalValue) || 0;
+      return s + v; // HUF-ra kellene váltani, de egyelőre natív értéken adjuk hozzá
+    }, 0);
+
+    return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
   }, [investments, closedPositions]);
 
   // ── Filtered & sorted list ──
@@ -405,7 +410,10 @@ export default function App() {
             {/* Stat cards – 2x2 */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {[
-                { label: "Portfólió értéke",    val: fmtCurrency(stats.totalValue, "HUF"), sub: `${investments.length} pozíció`, color: theme.text.primary },
+                { label: "Portfólió értéke",
+                  val: fmtCurrency(stats.totalValue, "HUF"),
+                  sub: `${investments.length} pozíció${stats.pendingTotal > 0 ? ` · +${fmtNum(stats.pendingTotal,0)} Ft függőben` : ""}`,
+                  color: theme.text.primary },
                 { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"), sub: "Összes vételár",                color: theme.text.secondary },
                 { label: "Nyereség / Veszteség",val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
                                                  sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,
@@ -433,7 +441,10 @@ export default function App() {
         {/* ── Stat cards ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
           {[
-            { label: "Portfólió értéke",    val: fmtCurrency(stats.totalValue, "HUF"),  sub: `${investments.length} pozíció`,   color: theme.text.primary,  glow: null },
+            { label: "Portfólió értéke",
+              val: fmtCurrency(stats.totalValue, "HUF"),
+              sub: `${investments.length} pozíció${stats.pendingTotal > 0 ? ` · +${fmtNum(stats.pendingTotal, 0)} Ft függőben` : ""}`,
+              color: theme.text.primary, glow: null },
             { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"),  sub: "Összes vételár",                   color: theme.text.secondary,glow: null },
             { label: "Papír nyereség",    val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
                                              sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,

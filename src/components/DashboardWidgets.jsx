@@ -274,13 +274,21 @@ export function savePending(p) { localStorage.setItem(PENDING_KEY, JSON.stringif
 export function PendingOrders({ onEdit }) {
   const [orders, setOrders] = useState(loadPending);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ name:"", ticker:"", type:"Buy Limit", price:"", quantity:"", currency:"USD", expiry:"", notes:"" });
+  const [form, setForm] = useState({ name:"", ticker:"", type:"Buy Limit", price:"", quantity:"", currency:"USD", expiry:"", totalValue:"", notes:"" });
+
+  // Automatikus érték számítás ha ár és mennyiség megvan
+  const calcTotal = (f) => {
+    const p = parseFloat(f.price), q = parseFloat(f.quantity);
+    if (p > 0 && q > 0) return p * q;
+    return parseFloat(f.totalValue) || 0;
+  };
 
   const addOrder = () => {
     if (!form.name || !form.price) return;
-    const next = [...orders, { ...form, id: Date.now().toString(36), createdAt: new Date().toISOString() }];
+    const total = calcTotal(form);
+    const next = [...orders, { ...form, id: Date.now().toString(36), createdAt: new Date().toISOString(), totalValue: total || "" }];
     setOrders(next); savePending(next);
-    setForm({ name:"", ticker:"", type:"Buy Limit", price:"", quantity:"", currency:"USD", expiry:"", notes:"" });
+    setForm({ name:"", ticker:"", type:"Buy Limit", price:"", quantity:"", currency:"USD", expiry:"", totalValue:"", notes:"" });
     setShowAdd(false);
   };
   const removeOrder = id => { const next = orders.filter(o => o.id !== id); setOrders(next); savePending(next); };
@@ -288,9 +296,11 @@ export function PendingOrders({ onEdit }) {
   const inputS = { width:"100%", background: T.bg.inset, border:`1px solid ${T.border.default}`, borderRadius: T.radius.sm, padding:"8px 10px", color: T.text.primary, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" };
   const TYPE_COLOR = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
+  const totalPending = orders.reduce((s, o) => s + (parseFloat(o.totalValue) || 0), 0);
+
   return (
     <div style={glassCard(T, { padding:16 })}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: totalPending > 0 ? 6 : 14 }}>
         <div style={{ fontSize:11, color:T.text.secondary, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700 }}>
           ⏳ Függőben lévő megbízások
         </div>
@@ -298,6 +308,14 @@ export function PendingOrders({ onEdit }) {
           {showAdd ? "Mégse" : "+ Hozzáadás"}
         </button>
       </div>
+      {totalPending > 0 && (
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, padding:"8px 10px", background:T.bg.inset, borderRadius:T.radius.sm }}>
+          <span style={{ fontSize:12, color:T.text.secondary }}>{orders.length} megbízás összesen</span>
+          <span style={{ fontSize:14, fontWeight:700, color:T.accent.yellow, fontFamily:"'DM Mono',monospace" }}>
+            {fmtNum(totalPending, 0)} (vegyes deviza)
+          </span>
+        </div>
+      )}
 
       {showAdd && (
         <div style={{ ...glassCard(T,{padding:12}), background:T.bg.inset, marginBottom:12, display:"flex", flexDirection:"column", gap:8 }}>
@@ -322,6 +340,23 @@ export function PendingOrders({ onEdit }) {
             </div>
             <div><div style={{ fontSize:10, color:T.text.tertiary, marginBottom:3 }}>Lejárat</div><input style={{...inputS,colorScheme:"dark"}} type="date" value={form.expiry} onChange={e=>setForm(f=>({...f,expiry:e.target.value}))}/></div>
           </div>
+          <div>
+            <div style={{ fontSize:10, color:T.text.tertiary, marginBottom:3 }}>
+              Megbízás értéke ({form.currency})
+              {parseFloat(form.price) > 0 && parseFloat(form.quantity) > 0 && (
+                <span style={{ color:T.accent.green, marginLeft:6 }}>
+                  auto: {fmtNum(parseFloat(form.price) * parseFloat(form.quantity), 0)}
+                </span>
+              )}
+            </div>
+            <input style={inputS} type="number"
+              value={parseFloat(form.price) > 0 && parseFloat(form.quantity) > 0
+                ? (parseFloat(form.price) * parseFloat(form.quantity)).toFixed(2)
+                : form.totalValue}
+              onChange={e => setForm(f => ({...f, totalValue: e.target.value}))}
+              placeholder="pl. 5499 — vagy add meg az árat + mennyiséget"
+            />
+          </div>
           <button onClick={addOrder} style={{ background:T.gradient.primary, border:"none", borderRadius:T.radius.md, padding:"8px", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, fontFamily:"inherit" }}>
             Megbízás mentése
           </button>
@@ -344,6 +379,13 @@ export function PendingOrders({ onEdit }) {
                   {o.quantity && ` · ${fmtNum(parseFloat(o.quantity),4)} db`}
                   {o.expiry && ` · ${o.expiry}-ig`}
                 </div>
+              </div>
+              <div style={{ textAlign:"right", flexShrink:0, marginRight:8 }}>
+                {o.totalValue > 0 && (
+                  <div style={{ fontSize:13, fontWeight:700, color:T.text.primary, fontFamily:"'DM Mono',monospace" }}>
+                    {fmtNum(parseFloat(o.totalValue), 0)} {o.currency}
+                  </div>
+                )}
               </div>
               <button onClick={() => removeOrder(o.id)} style={{ background:"none", border:"none", color:T.text.tertiary, cursor:"pointer", fontSize:16, padding:"0 4px", flexShrink:0 }}>✕</button>
             </div>
