@@ -277,9 +277,10 @@ const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", curre
 const TYPE_COLOR  = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
 export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
-  const [orders,  setOrders]  = useState(loadPending);
-  const [showAdd, setShowAdd] = useState(false);
-  const [form,    setForm]    = useState(EMPTY_ORDER);
+  const [orders,    setOrders]    = useState(loadPending);
+  const [showAdd,   setShowAdd]   = useState(false);
+  const [expanded,  setExpanded]  = useState(null); // expanded order id
+  const [form,      setForm]      = useState(EMPTY_ORDER);
   const f = (k, v) => setForm(p => ({...p, [k]: v}));
 
   const limitPrice  = parseFloat(form.limitPrice) || 0;
@@ -480,46 +481,68 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
           <span style={{ fontSize:11 }}>pl. DFNS.UK Buy Limit @ 61.41 USD</span>
         </div>
       ) : orders.map(o => {
-        const huf = o.hufTotal || 0;
+        const huf    = o.hufTotal || 0;
         const hasHuf = huf > 0;
+        const isOpen = expanded === o.id;
         return (
-          <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
-            <span style={{ fontSize:10, fontWeight:800, background:(TYPE_COLOR[o.type]||"#94A3B8")+"20", color:TYPE_COLOR[o.type]||"#94A3B8", borderRadius:4, padding:"2px 6px", flexShrink:0 }}>
-              {o.type}
-            </span>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:13, fontWeight:600, color:T.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                {o.name} {o.ticker && <span style={{ color:T.text.tertiary, fontSize:11 }}>· {o.ticker}</span>}
-              </div>
-              <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace", marginTop:2 }}>
-                {fmtNum(o.limitPrice, 2)} {o.currency}
-                {o.quantity > 0 && ` · ${fmtNum(o.quantity, 4)} db`}
-                {o.savedFxRate > 0 && o.currency !== "HUF" && (
-                  <span style={{ color:T.accent.blue, opacity:0.7 }}> · fx:{fmtNum(o.savedFxRate, 1)}</span>
-                )}
-                {o.expiry && ` · ${o.expiry}-ig`}
-              </div>
-            </div>
-            {/* Érték: HUF elsődleges, natív másodlagos */}
-            <div style={{ textAlign:"right", flexShrink:0 }}>
-              {hasHuf ? (
-                <>
-                  <div style={{ fontSize:13, fontWeight:700, color:T.accent.yellow, fontFamily:"'DM Mono',monospace" }}>
-                    {fmtNum(huf, 0)} Ft
-                  </div>
-                  {o.currency !== "HUF" && o.totalNative > 0 && (
-                    <div style={{ fontSize:10, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
-                      {fmtNum(o.totalNative, 2)} {o.currency}
-                    </div>
-                  )}
-                </>
-              ) : o.totalNative > 0 ? (
-                <div style={{ fontSize:13, fontWeight:700, color:T.text.primary, fontFamily:"'DM Mono',monospace" }}>
-                  {fmtNum(o.totalNative, 2)} {o.currency}
+          <div key={o.id} style={{ borderBottom:`1px solid ${T.border.subtle}` }}>
+            {/* Fő sor - tapintásra kinyílik */}
+            <div onClick={() => setExpanded(isOpen ? null : o.id)}
+              style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", cursor:"pointer" }}>
+              <span style={{ fontSize:10, fontWeight:800, background:(TYPE_COLOR[o.type]||"#94A3B8")+"20", color:TYPE_COLOR[o.type]||"#94A3B8", borderRadius:4, padding:"2px 6px", flexShrink:0 }}>
+                {o.type}
+              </span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:T.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                  {o.name} {o.ticker && <span style={{ color:T.text.tertiary, fontSize:11 }}>· {o.ticker}</span>}
                 </div>
-              ) : null}
+                <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace", marginTop:2 }}>
+                  {fmtNum(o.limitPrice, 2)} {o.currency}
+                  {o.quantity > 0 && ` · ${fmtNum(o.quantity, 4)} db`}
+                </div>
+              </div>
+              <div style={{ textAlign:"right", flexShrink:0 }}>
+                {hasHuf ? (
+                  <>
+                    <div style={{ fontSize:13, fontWeight:700, color:T.accent.yellow, fontFamily:"'DM Mono',monospace" }}>{fmtNum(huf, 0)} Ft</div>
+                    {o.currency !== "HUF" && o.totalNative > 0 && (
+                      <div style={{ fontSize:10, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>{fmtNum(o.totalNative, 2)} {o.currency}</div>
+                    )}
+                  </>
+                ) : o.totalNative > 0 ? (
+                  <div style={{ fontSize:13, fontWeight:700, color:T.text.primary, fontFamily:"'DM Mono',monospace" }}>{fmtNum(o.totalNative, 2)} {o.currency}</div>
+                ) : null}
+              </div>
+              <span style={{ color:T.text.tertiary, fontSize:11, flexShrink:0, marginLeft:2 }}>{isOpen ? "▲" : "▼"}</span>
             </div>
-            <button onClick={() => removeOrder(o.id)} style={{ background:"none", border:"none", color:T.text.tertiary, cursor:"pointer", fontSize:16, padding:"0 4px", flexShrink:0 }}>✕</button>
+
+            {/* Részletek panel */}
+            {isOpen && (
+              <div style={{ background:T.bg.inset, borderRadius:T.radius.md, padding:12, marginBottom:10 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12 }}>
+                  {[
+                    ["Limit ár",    `${fmtNum(o.limitPrice, 2)} ${o.currency}`],
+                    ["Mennyiség",   o.quantity > 0 ? `${fmtNum(o.quantity, 4)} db` : "—"],
+                    ["Natív érték", o.totalNative > 0 ? `${fmtNum(o.totalNative, 2)} ${o.currency}` : "—"],
+                    ["HUF érték",   hasHuf ? `${fmtNum(huf, 0)} Ft` : "—"],
+                    ["Rögz. FX",    o.savedFxRate > 0 ? `${fmtNum(o.savedFxRate, 2)}` : "—"],
+                    ["Lejárat",     o.expiry || "Nincs"],
+                    ["Rögzítve",    o.createdAt ? new Date(o.createdAt).toLocaleDateString("hu-HU") : "—"],
+                    ["Típus",       o.type],
+                  ].map(([l, v]) => (
+                    <div key={l}>
+                      <div style={{ fontSize:9, color:T.text.tertiary, textTransform:"uppercase", marginBottom:2 }}>{l}</div>
+                      <div style={{ fontSize:12, color:T.text.secondary, fontFamily:"'DM Mono',monospace" }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={e => { e.stopPropagation(); removeOrder(o.id); }} style={{
+                  width:"100%", background:"rgba(252,165,165,0.08)", border:`1px solid rgba(252,165,165,0.25)`,
+                  borderRadius:T.radius.sm, padding:"7px", color:T.accent.red,
+                  cursor:"pointer", fontSize:12, fontWeight:700, fontFamily:"inherit",
+                }}>🗑️ Megbízás törlése</button>
+              </div>
+            )}
           </div>
         );
       })}

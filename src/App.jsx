@@ -416,8 +416,8 @@ export default function App() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {[
                 { label: "Portfólió értéke",
-                  val: fmtCurrency(stats.totalValue, "HUF"),
-                  sub: `${investments.length} pozíció${stats.pendingTotal > 0 ? ` · +${fmtNum(stats.pendingTotal,0)} Ft függőben` : ""}`,
+                  val: fmtCurrency(stats.totalValue + stats.pendingTotal, "HUF"),
+                  sub: `${investments.length} pozíció · ${stats.pendingTotal > 0 ? `+${fmtNum(stats.pendingTotal,0)} Ft függőben` : "nincs függő"}`,
                   color: theme.text.primary },
                 { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"), sub: "Összes vételár",                color: theme.text.secondary },
                 { label: "Nyereség / Veszteség",val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
@@ -447,8 +447,8 @@ export default function App() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
           {[
             { label: "Portfólió értéke",
-              val: fmtCurrency(stats.totalValue, "HUF"),
-              sub: `${investments.length} pozíció${stats.pendingTotal > 0 ? ` · +${fmtNum(stats.pendingTotal, 0)} Ft függőben` : ""}`,
+              val: fmtCurrency(stats.totalValue + stats.pendingTotal, "HUF"),
+              sub: `${investments.length} pozíció · ${stats.pendingTotal > 0 ? `+${fmtNum(stats.pendingTotal, 0)} Ft függőben` : "nincs függő megbízás"}`,
               color: theme.text.primary, glow: null },
             { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"),  sub: "Összes vételár",                   color: theme.text.secondary,glow: null },
             { label: "Papír nyereség",    val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
