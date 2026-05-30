@@ -52,7 +52,7 @@ function NewsFeed({ ticker }) {
 }
 
 // ─── DETAIL MODAL ─────────────────────────────────────────────────────────────
-export function DetailModal({ inv, onClose, onEdit }) {
+export function DetailModal({ inv, closedPositions = [], onClose, onEdit }) {
   const [tab, setTab] = useState("chart");
   const { value, abs, pct } = calcPnL(inv);
   const up = abs >= 0;
@@ -179,6 +179,40 @@ export function DetailModal({ inv, onClose, onEdit }) {
                             <div style={{ fontSize: 12, color: T.text.tertiary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.impliedFxRate, 2)}</div>
                           </div>
                         )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Lezárt ügyletek */}
+              {closedPositions.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ fontSize: 11, color: T.text.secondary, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 10 }}>
+                    📊 Lezárt ügyletek ({closedPositions.length})
+                  </div>
+                  {closedPositions.map((cp, i) => (
+                    <div key={cp.id || i} style={{ background: T.bg.inset, borderRadius: T.radius.md, padding: "12px", marginBottom: 8, border: `1px solid ${T.border.subtle}` }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, color: T.text.tertiary }}>Lezárva: {cp.closeDate || "—"}</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'DM Mono',monospace", color: cp.pnl >= 0 ? T.accent.green : T.accent.red }}>
+                          {cp.pnl >= 0 ? "+" : ""}{fmtNum(cp.pnl, 0)} HUF
+                        </span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        {[
+                          ["Nyitás", `${cp.openDate} · $${fmtNum(cp.openUsdPrice, 2)}`],
+                          ["Zárás",  `${cp.closeDate} · $${fmtNum(cp.closeUsdPrice, 2)}`],
+                          ["Mennyiség", fmtNum(cp.volume, 4) + " db"],
+                          ["Hozam", (cp.pnlPct >= 0 ? "+" : "") + fmtNum(cp.pnlPct, 2) + "%"],
+                          ["Befizetve", fmtNum(cp.purchaseHuf, 0) + " HUF"],
+                          ["Bevétel",   fmtNum(cp.saleHuf, 0) + " HUF"],
+                        ].map(([l, v]) => (
+                          <div key={l}>
+                            <div style={{ fontSize: 9, color: T.text.tertiary, marginBottom: 2 }}>{l}</div>
+                            <div style={{ fontSize: 12, color: T.text.secondary, fontFamily: "'DM Mono',monospace" }}>{v}</div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}

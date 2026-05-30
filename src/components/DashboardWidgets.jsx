@@ -117,8 +117,8 @@ export function BenchmarkChart({ investments }) {
   }, [range]);
 
   const portfolioReturn = useMemo(() => {
-    const total    = investments.reduce((s, i) => s + i.currentPrice * i.quantity, 0);
-    const invested = investments.reduce((s, i) => s + i.buyPrice * i.quantity, 0);
+    const total    = investments.reduce((s, i) => s + calcPnL(i).value, 0);
+    const invested = investments.reduce((s, i) => s + calcPnL(i).cost, 0);
     return invested > 0 ? ((total - invested) / invested) * 100 : 0;
   }, [investments]);
 
@@ -262,6 +262,94 @@ export function RiskReturn({ investments }) {
           );
         })}
       </svg>
+    </div>
+  );
+}
+
+// ─── FÜGGŐBEN LÉVŐ MEGBÍZÁSOK ─────────────────────────────────────────────────
+const PENDING_KEY = "investtrack_pending_v1";
+export function loadPending()  { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]"); } catch { return []; } }
+export function savePending(p) { localStorage.setItem(PENDING_KEY, JSON.stringify(p)); }
+
+export function PendingOrders({ onEdit }) {
+  const [orders, setOrders] = useState(loadPending);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ name:"", ticker:"", type:"Buy Limit", price:"", quantity:"", currency:"USD", expiry:"", notes:"" });
+
+  const addOrder = () => {
+    if (!form.name || !form.price) return;
+    const next = [...orders, { ...form, id: Date.now().toString(36), createdAt: new Date().toISOString() }];
+    setOrders(next); savePending(next);
+    setForm({ name:"", ticker:"", type:"Buy Limit", price:"", quantity:"", currency:"USD", expiry:"", notes:"" });
+    setShowAdd(false);
+  };
+  const removeOrder = id => { const next = orders.filter(o => o.id !== id); setOrders(next); savePending(next); };
+
+  const inputS = { width:"100%", background: T.bg.inset, border:`1px solid ${T.border.default}`, borderRadius: T.radius.sm, padding:"8px 10px", color: T.text.primary, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" };
+  const TYPE_COLOR = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
+
+  return (
+    <div style={glassCard(T, { padding:16 })}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+        <div style={{ fontSize:11, color:T.text.secondary, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700 }}>
+          ⏳ Függőben lévő megbízások
+        </div>
+        <button onClick={() => setShowAdd(v => !v)} style={{ background:"rgba(110,231,183,0.12)", border:`1px solid ${T.accent.green}40`, borderRadius:T.radius.sm, padding:"4px 10px", cursor:"pointer", fontSize:11, fontWeight:700, color:T.accent.green, fontFamily:"inherit" }}>
+          {showAdd ? "Mégse" : "+ Hozzáadás"}
+        </button>
+      </div>
+
+      {showAdd && (
+        <div style={{ ...glassCard(T,{padding:12}), background:T.bg.inset, marginBottom:12, display:"flex", flexDirection:"column", gap:8 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            <div><div style={{ fontSize:10, color:T.text.tertiary, marginBottom:3 }}>Megnevezés*</div><input style={inputS} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="pl. VanEck Defense ETF"/></div>
+            <div><div style={{ fontSize:10, color:T.text.tertiary, marginBottom:3 }}>Ticker</div><input style={inputS} value={form.ticker} onChange={e=>setForm(f=>({...f,ticker:e.target.value.toUpperCase()}))} placeholder="pl. DFNS.L"/></div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+            <div><div style={{ fontSize:10, color:T.text.tertiary, marginBottom:3 }}>Típus</div>
+              <select style={inputS} value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}>
+                {["Buy Limit","Sell Limit","Buy Stop","Sell Stop"].map(t=><option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div><div style={{ fontSize:10, color:T.text.tertiary, marginBottom:3 }}>Limit ár*</div><input style={inputS} type="number" value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))} placeholder="0"/></div>
+            <div><div style={{ fontSize:10, color:T.text.tertiary, marginBottom:3 }}>Mennyiség</div><input style={inputS} type="number" value={form.quantity} onChange={e=>setForm(f=>({...f,quantity:e.target.value}))} placeholder="0"/></div>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            <div><div style={{ fontSize:10, color:T.text.tertiary, marginBottom:3 }}>Deviza</div>
+              <select style={inputS} value={form.currency} onChange={e=>setForm(f=>({...f,currency:e.target.value}))}>
+                {["USD","EUR","HUF","GBP"].map(c=><option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div><div style={{ fontSize:10, color:T.text.tertiary, marginBottom:3 }}>Lejárat</div><input style={{...inputS,colorScheme:"dark"}} type="date" value={form.expiry} onChange={e=>setForm(f=>({...f,expiry:e.target.value}))}/></div>
+          </div>
+          <button onClick={addOrder} style={{ background:T.gradient.primary, border:"none", borderRadius:T.radius.md, padding:"8px", color:"#fff", cursor:"pointer", fontSize:12, fontWeight:700, fontFamily:"inherit" }}>
+            Megbízás mentése
+          </button>
+        </div>
+      )}
+
+      {orders.length === 0 && !showAdd ? (
+        <div style={{ textAlign:"center", color:T.text.tertiary, fontSize:12, padding:"16px 0" }}>
+          Nincs függőben lévő megbízás.<br/>Adj hozzá manuálisan.
+        </div>
+      ) : (
+        <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+          {orders.map(o => (
+            <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
+              <span style={{ fontSize:10, fontWeight:800, background:(TYPE_COLOR[o.type]||"#94A3B8")+"20", color:TYPE_COLOR[o.type]||"#94A3B8", borderRadius:4, padding:"2px 6px", flexShrink:0 }}>{o.type}</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:T.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{o.name}</div>
+                <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
+                  {o.ticker && `${o.ticker} · `}{fmtNum(parseFloat(o.price),2)} {o.currency}
+                  {o.quantity && ` · ${fmtNum(parseFloat(o.quantity),4)} db`}
+                  {o.expiry && ` · ${o.expiry}-ig`}
+                </div>
+              </div>
+              <button onClick={() => removeOrder(o.id)} style={{ background:"none", border:"none", color:T.text.tertiary, cursor:"pointer", fontSize:16, padding:"0 4px", flexShrink:0 }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

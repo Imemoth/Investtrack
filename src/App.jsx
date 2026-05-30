@@ -11,7 +11,7 @@ import { Header } from "./components/Header";
 import { InvestmentForm } from "./components/InvestmentForm";
 import { DetailModal } from "./components/DetailModal";
 import { BubbleChart } from "./components/BubbleChart";
-import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn } from "./components/DashboardWidgets";
+import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn, PendingOrders } from "./components/DashboardWidgets";
 import { TransactionLog, addTransaction } from "./components/TransactionLog";
 import { AIAnalysis } from "./components/AIAnalysis";
 import { FeatureModal } from "./components/FeatureModals";
@@ -421,6 +421,7 @@ export default function App() {
               ))}
             </div>
             <TopMovers investments={investments} />
+            <PendingOrders />
             <CurrencyExposure investments={investments} />
             <BenchmarkChart investments={investments} />
             <RiskReturn investments={investments} />
@@ -794,8 +795,12 @@ AMD,AMD,Részvény,210,0.03,0,HUF,2024-06-15,2. vétel`}</div>
       )}
 
       {detailInv && (
-        <DetailModal inv={detailInv} onClose={() => setDetailInv(null)}
-          onEdit={() => { setEditing(detailInv); setDetailInv(null); setModal("edit"); }} />
+        <DetailModal
+          inv={detailInv}
+          closedPositions={closedPositions.filter(c => c.xtbTicker === detailInv.xtbTicker || c.ticker === detailInv.ticker)}
+          onClose={() => setDetailInv(null)}
+          onEdit={() => { setEditing(detailInv); setDetailInv(null); setModal("edit"); }}
+        />
       )}
 
       {confirmClear && (
