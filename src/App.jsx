@@ -11,11 +11,72 @@ import { Header } from "./components/Header";
 import { InvestmentForm } from "./components/InvestmentForm";
 import { DetailModal } from "./components/DetailModal";
 import { BubbleChart } from "./components/BubbleChart";
+import { Treemap } from "./components/Treemap";
 import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn, PendingOrders, loadPending } from "./components/DashboardWidgets";
 import { TransactionLog, addTransaction } from "./components/TransactionLog";
 import { AIAnalysis } from "./components/AIAnalysis";
 import { FeatureModal } from "./components/FeatureModals";
 import { SellModal } from "./components/SellModal";
+
+// ─── KOMPAKT BEFEKTETÉS SOR ────────────────────────────────────────────────────
+function InvRow({ inv, value, abs, pct, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const color = up ? theme.accent.green : theme.accent.red;
+
+  return (
+    <div style={{ borderBottom:`1px solid ${theme.border.subtle}` }}>
+      {/* Fő sor */}
+      <div onClick={() => setOpen(v => !v)} style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:8, padding:"10px 12px", cursor:"pointer", alignItems:"center" }}
+        onMouseEnter={e => e.currentTarget.style.background = theme.bg.surface}
+        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {/* Ikon + név */}
+        <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
+          <div style={{ width:30, height:30, borderRadius:7, background:CATEGORY_COLORS[inv.category]+"20", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, border:`1px solid ${CATEGORY_COLORS[inv.category]}25` }}>
+            <span style={{ fontSize:9, fontWeight:800, color:CATEGORY_COLORS[inv.category], fontFamily:"'DM Mono',monospace" }}>{(inv.ticker||inv.name).slice(0,4).toUpperCase()}</span>
+          </div>
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontSize:13, fontWeight:600, color:theme.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{inv.name}</div>
+            <div style={{ fontSize:10, color:theme.text.tertiary, fontFamily:"'DM Mono',monospace" }}>{inv.ticker}</div>
+          </div>
+        </div>
+        {/* Érték */}
+        <div style={{ fontSize:13, fontWeight:700, color:theme.text.primary, fontFamily:"'DM Mono',monospace", textAlign:"right" }}>
+          {fmtNum(value, 0)}
+        </div>
+        {/* P&L % */}
+        <div style={{ fontSize:13, fontWeight:700, color, fontFamily:"'DM Mono',monospace", textAlign:"right", minWidth:60 }}>
+          {up?"+":""}{fmtNum(pct, 2)}%
+        </div>
+        {/* Expand arrow */}
+        <span style={{ color:theme.text.tertiary, fontSize:10 }}>{open?"▲":"▼"}</span>
+      </div>
+
+      {/* Részletek - kinyitva */}
+      {open && (
+        <div style={{ padding:"0 12px 12px", background:theme.bg.inset }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:10 }}>
+            {[
+              ["Vételár",    fmtNum(avgBuyPrice, 2) + " " + inv.currency],
+              ["Mennyiség",  fmtNum(quantity, quantity%1===0 ? 0 : 4) + " db"],
+              ["P&L összeg", (up?"+":"")+fmtNum(abs,0)+" Ft"],
+            ].map(([l,v]) => (
+              <div key={l}>
+                <div style={{ fontSize:9, color:theme.text.tertiary, textTransform:"uppercase", marginBottom:2 }}>{l}</div>
+                <div style={{ fontSize:12, color:theme.text.secondary, fontFamily:"'DM Mono',monospace" }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display:"flex", gap:6 }} onClick={e => e.stopPropagation()}>
+            <button onClick={onDetail} style={{ flex:1, background:theme.bg.surface, border:`1px solid ${theme.border.subtle}`, borderRadius:theme.radius.sm, padding:"6px 0", color:theme.text.secondary, cursor:"pointer", fontSize:11, fontFamily:"inherit" }}>📈 Grafikon</button>
+            <button onClick={onSell} style={{ flex:1, background:"rgba(252,165,165,0.08)", border:`1px solid rgba(252,165,165,0.2)`, borderRadius:theme.radius.sm, padding:"6px 0", color:theme.accent.red, cursor:"pointer", fontSize:11, fontFamily:"inherit", fontWeight:600 }}>📤 Eladás</button>
+            <button onClick={onEdit} style={{ background:theme.bg.surface, border:`1px solid ${theme.border.subtle}`, borderRadius:theme.radius.sm, padding:"6px 10px", color:theme.text.secondary, cursor:"pointer", fontSize:12, fontFamily:"inherit" }}>✏️</button>
+            <button onClick={onDelete} style={{ background:"none", border:`1px solid rgba(252,165,165,0.15)`, borderRadius:theme.radius.sm, padding:"6px 10px", color:theme.accent.red, cursor:"pointer", fontSize:12, fontFamily:"inherit" }}>🗑️</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -461,6 +522,12 @@ export default function App() {
                 : "—",
               sub: closedPositions.length > 0 ? `${closedPositions.length} lezárt pozíció` : "XTB import szükséges",
               color: stats.totalRealizedPnL >= 0 ? theme.accent.green : theme.accent.red, glow: null },
+            { label: "⏳ Függőben",
+              val: stats.pendingTotal > 0 ? fmtCurrency(stats.pendingTotal, "HUF") : "—",
+              sub: stats.pendingTotal > 0 && stats.totalValue > 0
+                ? `portfólió ${fmtNum(stats.pendingTotal / (stats.totalValue + stats.pendingTotal) * 100, 1)}%-a`
+                : "nincs függő megbízás",
+              color: theme.accent.yellow, glow: null },
           ].map((s, i) => (
             <div key={i} style={{ ...S.statCard, background: s.glow || theme.bg.surface, animation: `slideUp 0.3s ease ${i * 0.05}s both` }}>
               <div style={{ fontSize: 10, color: theme.text.tertiary, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
@@ -518,7 +585,7 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <BubbleChart
+                <Treemap
                   data={stats.posBreakdown}
                   onSelect={item => setDetailInv(investments.find(i => (i.ticker || i.name) === item.label))}
                 />
@@ -548,55 +615,32 @@ export default function App() {
             <button style={{ ...S.btn("primary"), margin: "0 auto" }} onClick={() => setModal("add")}>+ Hozzáadás</button>
           </div>
         ) : isMobile ? (
-          // ── Mobile cards ──
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {/* Utolsó frissítés banner */}
+          // ── Kompakt mobil lista ──
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             {refreshLabel && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "6px 12px", background: theme.bg.surface, border: `1px solid ${theme.border.subtle}`, borderRadius: theme.radius.md, fontSize: 11, color: theme.text.tertiary }}>
-                🕐 Árfolyamok: <span style={{ color: theme.text.secondary, fontWeight: 600 }}>{refreshLabel}</span>
-                <span style={{ color: theme.text.tertiary }}>· ~15 perces késleltetés</span>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:6, padding:"6px 12px", background:theme.bg.surface, border:`1px solid ${theme.border.subtle}`, borderRadius:theme.radius.md, fontSize:11, color:theme.text.tertiary, marginBottom:8 }}>
+                🕐 <span style={{ color:theme.text.secondary, fontWeight:600 }}>{refreshLabel}</span>
+                <span>· ~15p késleltetés</span>
               </div>
             )}
+            {/* Fejléc */}
+            <div style={{ display:"grid", gridTemplateColumns:"1fr auto auto auto", gap:8, padding:"6px 12px", borderBottom:`1px solid ${theme.border.subtle}` }}>
+              {["Részvény","Érték","P&L %",""].map((h,i) => (
+                <div key={i} style={{ fontSize:9, color:theme.text.tertiary, textTransform:"uppercase", letterSpacing:"0.07em", fontWeight:700, textAlign: i>=1 ? "right" : "left" }}>{h}</div>
+              ))}
+            </div>
             {displayed.map(inv => {
-              const { value, abs, pct } = calcPnL(inv);
-              const up = abs >= 0;
+              const { value, abs, pct, avgBuyPrice, quantity } = calcPnL(inv);
+              const up = pct >= 0;
+              const [expanded, setExpanded] = [false, () => {}]; // per-item state handled below
               return (
-                <div key={inv.id} style={{ ...glassCard(theme, { padding: "14px 16px" }), cursor: "pointer", transition: theme.transition.fast }}
-                  onClick={() => setDetailInv(inv)}
-                  onMouseEnter={e => e.currentTarget.style.background = theme.bg.raised}
-                  onMouseLeave={e => e.currentTarget.style.background = theme.bg.surface}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 38, height: 38, borderRadius: 10, background: CATEGORY_COLORS[inv.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${CATEGORY_COLORS[inv.category]}30` }}>
-                        <span style={{ fontSize: 11, fontWeight: 800, color: CATEGORY_COLORS[inv.category], fontFamily: "'DM Mono', monospace" }}>{(inv.ticker || inv.name).slice(0, 4).toUpperCase()}</span>
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: theme.text.primary }}>{inv.name}</div>
-                        <div style={{ fontSize: 11, color: theme.text.tertiary, fontFamily: "'DM Mono', monospace" }}>{inv.ticker} · {inv.currency}</div>
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontWeight: 700, fontSize: 15, color: theme.text.primary, fontFamily: "'DM Mono', monospace" }}>{fmtNum(value, 0)}</div>
-                      <div style={{ fontSize: 12, color: up ? theme.accent.green : theme.accent.red, fontFamily: "'DM Mono', monospace", fontWeight: 700 }}>{up ? "+" : ""}{fmtNum(pct, 2)}%</div>
-                    </div>
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, borderTop: `1px solid ${theme.border.subtle}`, paddingTop: 10 }}>
-                    {[["Vételár", fmtNum(calcPnL(inv).avgBuyPrice, 2)], ["Mennyiség", fmtNum(calcPnL(inv).quantity, calcPnL(inv).quantity % 1 === 0 ? 0 : 4)], ["P&L", (up ? "+" : "") + fmtNum(abs, 0)]].map(([l, v], i) => (
-                      <div key={i}>
-                        <div style={{ fontSize: 10, color: "#8B949E", textTransform: "uppercase", marginBottom: 2 }}>{l}</div>
-                        <div style={{ fontSize: 12, fontFamily: "'DM Mono', monospace", color: i === 2 ? (up ? "#6EE7B7" : "#FCA5A5") : "#C9D1D9" }}>{v}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }} onClick={e => e.stopPropagation()}>
-                    <button onClick={() => setSellInv(inv)}
-                      style={{ background: "rgba(252,165,165,0.1)", border: `1px solid rgba(252,165,165,0.3)`, borderRadius: theme.radius.md, padding: "6px 12px", color: theme.accent.red, cursor: "pointer", fontSize: 12, fontFamily: "inherit", fontWeight: 600 }}>📤 Eladás</button>
-                    <button onClick={() => { setEditing(inv); setModal("edit"); }}
-                      style={{ background: theme.bg.surface, border: `1px solid ${theme.border.default}`, borderRadius: theme.radius.md, padding: "6px 12px", color: theme.text.secondary, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>✏️</button>
-                    <button onClick={() => setConfirmDelete(inv)}
-                      style={{ background: "none", border: `1px solid rgba(252,165,165,0.2)`, borderRadius: theme.radius.md, padding: "6px 10px", color: theme.accent.red, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>🗑️</button>
-                  </div>
-                </div>
+                <InvRow key={inv.id} inv={inv} value={value} abs={abs} pct={pct}
+                  avgBuyPrice={avgBuyPrice} quantity={quantity} up={up} theme={theme}
+                  onDetail={() => setDetailInv(inv)}
+                  onSell={() => setSellInv(inv)}
+                  onEdit={() => { setEditing(inv); setModal("edit"); }}
+                  onDelete={() => setConfirmDelete(inv)}
+                />
               );
             })}
           </div>

@@ -6,6 +6,9 @@ import { THEME as T, glassCard } from "../design-system";
 
 // ─── TOP WINNERS / LOSERS ─────────────────────────────────────────────────────
 export function TopMovers({ investments }) {
+  const [openWinners, setOpenWinners] = useState(false);
+  const [openLosers,  setOpenLosers]  = useState(false);
+
   const sorted = useMemo(() =>
     [...investments]
       .filter(i => i.currentPrice > 0)
@@ -17,43 +20,69 @@ export function TopMovers({ investments }) {
 
   const winners = sorted.slice(0, 3);
   const losers  = [...sorted].reverse().slice(0, 3);
-
-  const MEDALS = ["🥇","🥈","🥉"];
+  const MEDALS  = ["🥇","🥈","🥉"];
 
   const Row = ({ inv, rank, isWinner }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${T.border.subtle}` }}>
-      <span style={{ fontSize: 15, width: 22, textAlign: "center", flexShrink: 0 }}>{MEDALS[rank]}</span>
-      <div style={{ width: 34, height: 34, borderRadius: T.radius.md, background: CATEGORY_COLORS[inv.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-        <span style={{ fontSize: 9, fontWeight: 800, color: CATEGORY_COLORS[inv.category], fontFamily: "'DM Mono',monospace" }}>
-          {(inv.ticker || inv.name).slice(0, 4)}
-        </span>
+    <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
+      <span style={{ fontSize:15, width:22, textAlign:"center", flexShrink:0 }}>{MEDALS[rank]}</span>
+      <div style={{ width:32, height:32, borderRadius:T.radius.md, background:CATEGORY_COLORS[inv.category]+"20", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+        <span style={{ fontSize:9, fontWeight:800, color:CATEGORY_COLORS[inv.category], fontFamily:"'DM Mono',monospace" }}>{(inv.ticker||inv.name).slice(0,4)}</span>
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.text.primary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.name}</div>
-        <div style={{ fontSize: 11, color: T.text.secondary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(inv.value, 0)} {inv.currency}</div>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontSize:13, fontWeight:600, color:T.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{inv.name}</div>
+        <div style={{ fontSize:11, color:T.text.secondary, fontFamily:"'DM Mono',monospace" }}>{fmtNum(inv.value, 0)} Ft</div>
       </div>
-      <div style={{ textAlign: "right", flexShrink: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: isWinner ? T.accent.green : T.accent.red, fontFamily: "'DM Mono',monospace" }}>
-          {isWinner ? "+" : ""}{fmtNum(inv.pct, 2)}%
+      <div style={{ textAlign:"right" }}>
+        <div style={{ fontSize:14, fontWeight:700, color:isWinner ? T.accent.green : T.accent.red, fontFamily:"'DM Mono',monospace" }}>
+          {isWinner?"+":""}{fmtNum(inv.pct, 2)}%
         </div>
-        <div style={{ fontSize: 11, color: T.text.tertiary, fontFamily: "'DM Mono',monospace" }}>
-          {isWinner ? "+" : ""}{fmtNum(inv.abs, 0)}
+        <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
+          {isWinner?"+":""}{fmtNum(inv.abs, 0)} Ft
         </div>
       </div>
     </div>
   );
 
+  const AccordionSection = ({ isWinner, isOpen, toggle }) => {
+    const list = isWinner ? winners : losers;
+    const best = list[0];
+    const color = isWinner ? T.accent.green : T.accent.red;
+    const icon  = isWinner ? "🏆" : "📉";
+    return (
+      <div style={glassCard(T, { padding:0, overflow:"hidden" })}>
+        <button onClick={toggle} style={{
+          width:"100%", background:"none", border:"none", cursor:"pointer",
+          padding:"12px 14px", display:"flex", justifyContent:"space-between", alignItems:"center",
+          fontFamily:"inherit",
+        }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:14 }}>{icon}</span>
+            <span style={{ fontSize:11, color:isWinner ? T.accent.green : T.accent.red, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700 }}>
+              {isWinner ? "Top nyertesek" : "Top vesztesek"}
+            </span>
+          </div>
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            {!isOpen && best && (
+              <span style={{ fontSize:12, color, fontFamily:"'DM Mono',monospace", fontWeight:700 }}>
+                {isWinner?"+":""}{fmtNum(best.pct, 2)}% {best.ticker||best.name}
+              </span>
+            )}
+            <span style={{ color:T.text.tertiary, fontSize:11 }}>{isOpen ? "▲" : "▼"}</span>
+          </div>
+        </button>
+        {isOpen && (
+          <div style={{ padding:"0 14px 10px" }}>
+            {list.map((inv, i) => <Row key={inv.id} inv={inv} rank={i} isWinner={isWinner} />)}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    // Egymás ALÁ mobilon — nem grid 1fr 1fr
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={glassCard(T, { padding: 16 })}>
-        <div style={{ fontSize: 11, color: T.accent.green, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 10 }}>🏆 Top nyertesek</div>
-        {winners.map((inv, i) => <Row key={inv.id} inv={inv} rank={i} isWinner />)}
-      </div>
-      <div style={glassCard(T, { padding: 16 })}>
-        <div style={{ fontSize: 11, color: T.accent.red, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 10 }}>📉 Top vesztesek</div>
-        {losers.map((inv, i) => <Row key={inv.id} inv={inv} rank={i} isWinner={false} />)}
-      </div>
+    <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+      <AccordionSection isWinner isOpen={openWinners} toggle={() => setOpenWinners(v => !v)} />
+      <AccordionSection isWinner={false} isOpen={openLosers} toggle={() => setOpenLosers(v => !v)} />
     </div>
   );
 }
