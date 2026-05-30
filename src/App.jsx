@@ -283,16 +283,20 @@ export default function App() {
 
     const catBreakdown = CATEGORIES
       .map(c => {
-        const v = investments
-          .filter(i => i.category === c)
-          .reduce((s, i) => s + calcPnL(i).value, 0);
+        const invs = investments.filter(i => i.category === c);
+        // Ha nincs currentPrice, cost basis alapján mutatjuk
+        const v = invs.reduce((s, i) => {
+          const p = calcPnL(i);
+          return s + (p.value > 0 ? p.value : p.cost);
+        }, 0);
         return { label: c, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: CATEGORY_COLORS[c] };
       })
       .filter(d => d.value > 0);
 
     const posBreakdown = [...investments]
       .map((inv, idx) => {
-        const v = calcPnL(inv).value;
+        const p = calcPnL(inv);
+        const v = p.value > 0 ? p.value : p.cost;
         return { label: inv.ticker || inv.name, fullName: inv.name, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: POSITION_PALETTE[idx % POSITION_PALETTE.length] };
       })
       .filter(d => d.value > 0)
@@ -434,8 +438,12 @@ export default function App() {
                                              sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,
                                              color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red,
                                              glow: stats.totalPnL >= 0 ? "rgba(110,231,183,0.12)" : "rgba(252,165,165,0.12)" },
-            { label: "💰 Realizált P&L",  val: stats.totalRealizedPnL !== 0 ? (stats.totalRealizedPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalRealizedPnL, "HUF") : "—",
-                                             sub: "lezárt pozíciókból", color: stats.totalRealizedPnL >= 0 ? theme.accent.green : theme.accent.red, glow: null },
+            { label: "💰 Realizált P&L",
+              val: closedPositions.length > 0
+                ? (stats.totalRealizedPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalRealizedPnL, "HUF")
+                : "—",
+              sub: closedPositions.length > 0 ? `${closedPositions.length} lezárt pozíció` : "XTB import szükséges",
+              color: stats.totalRealizedPnL >= 0 ? theme.accent.green : theme.accent.red, glow: null },
           ].map((s, i) => (
             <div key={i} style={{ ...S.statCard, background: s.glow || theme.bg.surface, animation: `slideUp 0.3s ease ${i * 0.05}s both` }}>
               <div style={{ fontSize: 10, color: theme.text.tertiary, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
