@@ -141,20 +141,6 @@ export default function App() {
     return () => clearTimeout(t);
   }, []);
 
-  // ── Auth loading / gate ──────────────────────────────────────────────────
-  if (user === undefined) {
-    return (
-      <div style={{ minHeight:"100dvh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#070B14", gap:16 }}>
-        <style>{`@keyframes _spin { to { transform: rotate(360deg); } }`}</style>
-        <div style={{ fontSize:32, animation:"_spin 1s linear infinite", display:"inline-block" }}>⟳</div>
-        <div style={{ fontSize:13, color:"#4B5563" }}>Csatlakozás...</div>
-      </div>
-    );
-  }
-  if (user === null) {
-    return <AuthScreen />;
-  }
-
   const theme = isDark ? T : LIGHT_THEME;
   const toggleTheme = () => {
     setIsDark(v => { localStorage.setItem("investtrack_theme", v ? "light" : "dark"); return !v; });
@@ -207,6 +193,20 @@ export default function App() {
     const { data: { subscription } } = onAuthStateChange(setUser);
     return () => { clearTimeout(timeout); subscription.unsubscribe(); };
   }, []);
+
+  // ── Auth loading / gate ──────────────────────────────────────────────────
+  if (user === undefined) {
+    return (
+      <div style={{ minHeight:"100dvh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#070B14", gap:16 }}>
+        <style>{`@keyframes _spin { to { transform: rotate(360deg); } }`}</style>
+        <div style={{ fontSize:32, animation:"_spin 1s linear infinite", display:"inline-block", color:"#6EE7B7" }}>⟳</div>
+        <div style={{ fontSize:13, color:"#4B5563" }}>Csatlakozás...</div>
+      </div>
+    );
+  }
+  if (user === null) {
+    return <AuthScreen />;
+  }
 
   // ── Adatok betöltése bejelentkezés után ──────────────────────────────────
   useEffect(() => {
