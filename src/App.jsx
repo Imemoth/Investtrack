@@ -175,22 +175,52 @@ export default function App() {
 
   // ── Auth state ───────────────────────────────────────────────────────────
   useEffect(() => {
-    // Timeout: ha 4 másodpercen belül nem válaszol → null (bejelentkezési képernyő)
     const timeout = setTimeout(() => {
       setUser(prev => prev === undefined ? null : prev);
-    }, 4000);
+    }, 5000);
 
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
+    // Email confirm / OAuth callback: hash-ből olvassuk a session-t
+    const handleSession = async () => {
+      try {
+        // Ha van hash token (email confirm után) → exchangeCodeForSession
+        const hash = window.location.hash;
+        if (hash && hash.includes("access_token")) {
+          const { data, error } = await supabase.auth.getSession();
+          if (!error && data.session) {
+            clearTimeout(timeout);
+            setUser(data.session.user);
+            window.history.replaceState(null, "", window.location.pathname);
+            return;
+          }
+        }
+        // Normál session ellenőrzés
+        const { data: { session }, error } = await supabase.auth.getSession();
+        clearTimeout(timeout);
+        if (error) console.warn("Auth hiba:", error.message);
+        setUser(session?.user ?? null);
+      } catch (err) {
+        clearTimeout(timeout);
+        console.warn("Supabase nem elérhető:", err);
+        setUser(null);
+      }
+    };
+
+    handleSession();
+
+    // onAuthStateChange: email confirm, login, logout eseményekre reagál
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("Auth event:", event);
       clearTimeout(timeout);
-      if (error) console.warn("Auth hiba:", error.message);
-      setUser(session?.user ?? null);
-    }).catch(err => {
-      clearTimeout(timeout);
-      console.warn("Auth kapcsolat hiba:", err);
-      setUser(null);
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        setUser(session?.user ?? null);
+        window.history.replaceState(null, "", window.location.pathname);
+      } else if (event === "SIGNED_OUT") {
+        setUser(null);
+      } else if (event === "USER_UPDATED") {
+        setUser(session?.user ?? null);
+      }
     });
 
-    const { data: { subscription } } = onAuthStateChange(setUser);
     return () => { clearTimeout(timeout); subscription.unsubscribe(); };
   }, []);
 

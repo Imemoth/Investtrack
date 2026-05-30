@@ -22,7 +22,10 @@ export function AuthScreen() {
     setLoading(true); setError(null);
     try {
       if (mode === "register") {
-        const { error } = await supabase.auth.signUp({ email, password: pass });
+        const { error } = await supabase.auth.signUp({
+          email, password: pass,
+          options: { emailRedirectTo: window.location.origin }
+        });
         if (error) throw error;
         setSent(true);
       } else {
