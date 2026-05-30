@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { CATEGORY_COLORS } from "../constants";
-import { calcPnL, fmtNum } from "../utils";
+import { calcPnL, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum } from "../utils";
 import { StockChart } from "./StockChart";
+import { THEME as T } from "../design-system";
 
 const NEWS_PROXIES = [
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -123,24 +124,69 @@ export function DetailModal({ inv, onClose, onEdit }) {
           {tab === "info"  && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                ["Vételár",        fmtNum(inv.buyPrice, 0) + " " + inv.currency],
+                ["Átlag vételár",  fmtNum(calcAvgBuyPrice(inv.lots||[]), 0) + " " + inv.currency],
+                ["Összmennyiség",  fmtNum(calcTotalQty(inv.lots||[]), 4) + " db"],
+                ["Befektetett",    fmtNum(calcCostBasis(inv.lots||[]), 0) + " " + inv.currency],
                 ["Jelenlegi ár",   fmtNum(inv.currentPrice, 0) + " " + inv.currency],
-                ["Mennyiség",      fmtNum(inv.quantity, inv.quantity % 1 === 0 ? 0 : 4)],
-                ["Befektetett",    fmtNum(inv.buyPrice * inv.quantity, 0) + " " + inv.currency],
-                ["Vétel dátuma",   inv.buyDate || "—"],
                 ["Célár",          inv.targetPrice ? fmtNum(+inv.targetPrice, 0) + " " + inv.currency : "Nincs beállítva"],
                 ["Célár távolság", inv.targetPrice && inv.currentPrice > 0
                   ? ((+inv.targetPrice - inv.currentPrice) / inv.currentPrice * 100).toFixed(2) + "%" : "—"],
                 ["Osztalékhozam",  inv.dividendYield ? inv.dividendYield + "%" : "—"],
                 ["Éves osztalék",  annualDividend > 0 ? fmtNum(annualDividend, 0) + " " + inv.currency : "—"],
               ].map(([label, val]) => (
-                <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #21262D" }}>
-                  <span style={{ fontSize: 13, color: "#8B949E" }}>{label}</span>
-                  <span style={{ fontSize: 13, color: "#E6EDF3", fontFamily: "'DM Mono',monospace", fontWeight: 600 }}>{val}</span>
+                <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${T.border.subtle}` }}>
+                  <span style={{ fontSize: 13, color: T.text.secondary }}>{label}</span>
+                  <span style={{ fontSize: 13, color: T.text.primary, fontFamily: "'DM Mono',monospace", fontWeight: 600 }}>{val}</span>
                 </div>
               ))}
+
+              {/* Lot-onkénti részletek */}
+              {inv.lots?.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ fontSize: 11, color: T.text.secondary, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700, marginBottom: 10 }}>
+                    📦 Vételi tételek ({inv.lots.length})
+                  </div>
+                  {inv.lots.map((lot, i) => (
+                    <div key={lot.id || i} style={{ background: T.bg.inset, borderRadius: T.radius.md, padding: "12px", marginBottom: 8, border: `1px solid ${T.border.subtle}` }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                        <span style={{ fontSize: 11, color: T.text.tertiary, fontWeight: 700 }}>#{i+1} tétel</span>
+                        <span style={{ fontSize: 11, color: T.text.tertiary, fontFamily: "'DM Mono',monospace" }}>
+                          {lot.datetime || lot.date || "—"}
+                        </span>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>Darabszám</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text.primary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.quantity, 4)} db</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>Befizetve (HUF)</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text.primary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.hufTotal || lot.price * lot.quantity, 0)} Ft</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>HUF/db vételár</div>
+                          <div style={{ fontSize: 13, color: T.text.secondary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.price, 0)} Ft</div>
+                        </div>
+                        {lot.usdPrice && (
+                          <div>
+                            <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>USD ár</div>
+                            <div style={{ fontSize: 13, color: T.text.secondary, fontFamily: "'DM Mono',monospace" }}>${fmtNum(lot.usdPrice, 2)}</div>
+                          </div>
+                        )}
+                        {lot.impliedFxRate && (
+                          <div style={{ gridColumn: "1 / -1" }}>
+                            <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>USD/HUF árfolyam (vételkor)</div>
+                            <div style={{ fontSize: 12, color: T.text.tertiary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.impliedFxRate, 2)}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {inv.notes && (
-                <div style={{ background: "#0D1117", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#8B949E", marginTop: 4 }}>
+                <div style={{ background: T.bg.inset, borderRadius: T.radius.md, padding: "10px 12px", fontSize: 12, color: T.text.secondary }}>
                   {inv.notes}
                 </div>
               )}
