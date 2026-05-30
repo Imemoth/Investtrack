@@ -271,7 +271,7 @@ const PENDING_KEY = "investtrack_pending_v1";
 export function loadPending()  { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]"); } catch { return []; } }
 export function savePending(p) { localStorage.setItem(PENDING_KEY, JSON.stringify(p)); }
 
-const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", currency:"USD", quantity:"", fxRate:"", hufValue:"", expiry:"", notes:"" };
+const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", currency:"USD", quantity:"", hufValue:"", expiry:"", notes:"" };
 const TYPE_COLOR  = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
 export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
@@ -282,16 +282,16 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
 
   const limitPrice  = parseFloat(form.limitPrice) || 0;
   const quantity    = parseFloat(form.quantity)   || 0;
-  const fxRate      = parseFloat(form.fxRate)     || 0;
+  const hufTotal    = parseFloat(form.hufValue)   || 0;
   const totalNative = limitPrice * quantity;
-  const liveRate    = fxRates[form.currency] || 0;
-  const effectiveFx = fxRate || liveRate;
-  const hufManual   = parseFloat(form.hufValue) || 0;
-  const hufAuto     = form.currency === "HUF" ? totalNative : (effectiveFx > 0 ? totalNative * effectiveFx : 0);
-  const hufTotal    = hufManual > 0 ? hufManual : hufAuto;
+
+  // Visszaszámított FX árfolyam: befektetett Ft / (limitár × db)
+  const impliedFx = (hufTotal > 0 && totalNative > 0)
+    ? Math.round(hufTotal / totalNative * 100) / 100
+    : 0;
 
   const handleCurrencyChange = (cur) => {
-    setForm(p => ({ ...p, currency: cur, fxRate: (cur !== "HUF" && fxRates[cur] && !p.fxRate) ? String(Math.round(fxRates[cur])) : p.fxRate }));
+    setForm(p => ({ ...p, currency: cur }));
   };
 
 
@@ -331,7 +331,7 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
       id: Date.now().toString(36), createdAt: new Date().toISOString(),
       limitPrice, quantity, totalNative,
       hufTotal:    hufTotal > 0 ? Math.round(hufTotal) : null,
-      savedFxRate: fxRate || effectiveFx || null,
+      savedFxRate: impliedFx || null,
     };
     const next = [...orders, order];
     setOrders(next); savePending(next);
@@ -429,44 +429,33 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
             </div>
           </div>
 
-          {/* Sor 4: Mennyiség + FX árfolyam (ha nem HUF) */}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-            <div>
-              <L>Mennyiség (db)</L>
-              <input style={inputS} type="number" value={form.quantity} onChange={e=>f("quantity",e.target.value)} placeholder="pl. 0.2852"/>
-            </div>
-            {form.currency !== "HUF" && (
-              <div>
-                <L>{form.currency}/HUF árfolyam</L>
-                <input style={inputS} type="number" value={form.fxRate}
-                  onChange={e=>f("fxRate",e.target.value)}
-                  placeholder={liveRate > 0 ? `auto: ${Math.round(liveRate)}` : "pl. 302"}
-                />
-              </div>
-            )}
+          {/* Sor 4: Mennyiség */}
+          <div>
+            <L>Mennyiség (db)</L>
+            <input style={inputS} type="number" value={form.quantity} onChange={e=>f("quantity",e.target.value)} placeholder="pl. 0.2852"/>
           </div>
 
-          {/* Sor 5: HUF érték (számított vagy kézzel) */}
+          {/* Sor 5: Befektetett összeg HUF-ban */}
           <div>
-            <L>
-              Érték HUF-ban
-              {hufAuto > 0 && !hufManual && <span style={{ color:T.accent.green, marginLeft:6, textTransform:"none", letterSpacing:0 }}>auto: {fmtNum(hufAuto, 0)} Ft</span>}
-            </L>
+            <L>Befektetett összeg (HUF) *</L>
             <input style={{
               ...inputS,
               background: hufTotal > 0 ? "rgba(110,231,183,0.06)" : T.bg.inset,
-              border:`1px solid ${hufTotal > 0 ? T.accent.green+"40" : T.border.subtle}`,
-              color: hufTotal > 0 ? T.accent.green : T.text.tertiary,
-              fontFamily:"'DM Mono',monospace",
+              border:`1px solid ${hufTotal > 0 ? T.accent.green+"50" : T.border.default}`,
             }}
-              type="number"
-              value={form.hufValue || (hufAuto > 0 ? Math.round(hufAuto) : "")}
+              type="number" value={form.hufValue}
               onChange={e=>f("hufValue",e.target.value)}
-              placeholder="Kézzel felülírható"
+              placeholder="pl. 5499"
             />
-            {form.currency !== "HUF" && !fxRate && !liveRate && (
-              <div style={{ fontSize:10, color:T.accent.yellow, marginTop:4 }}>
-                ⚠️ Add meg az {form.currency}/HUF árfolyamot a pontos HUF értékhez
+            {/* Visszaszámított FX árfolyam */}
+            {impliedFx > 0 && (
+              <div style={{ marginTop:6, padding:"6px 10px", background:"rgba(147,197,253,0.08)", border:`1px solid rgba(147,197,253,0.2)`, borderRadius:T.radius.sm, display:"flex", justifyContent:"space-between" }}>
+                <span style={{ fontSize:11, color:T.text.tertiary }}>
+                  Visszaszámított {form.currency}/HUF árfolyam:
+                </span>
+                <span style={{ fontSize:11, fontWeight:700, color:T.accent.blue, fontFamily:"'DM Mono',monospace" }}>
+                  {fmtNum(impliedFx, 2)}
+                </span>
               </div>
             )}
           </div>
@@ -511,7 +500,7 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
               <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace", marginTop:2 }}>
                 {fmtNum(o.limitPrice, 2)} {o.currency}
                 {o.quantity > 0 && ` · ${fmtNum(o.quantity, 4)} db`}
-                {o.savedFxRate > 0 && o.currency !== "HUF" && ` · fx: ${fmtNum(o.savedFxRate, 0)}`}
+                {o.savedFxRate > 0 && o.currency !== "HUF" && ` · fx: ${fmtNum(o.savedFxRate, 1)}`}
                 {o.expiry && ` · ${o.expiry}-ig`}
               </div>
             </div>
