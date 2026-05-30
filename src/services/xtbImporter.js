@@ -1,39 +1,28 @@
 // services/xtbImporter.js
-// XTB xStation5 XLSX export → InvestTrack v2 formátum
+// XTB xStation5 XLSX → InvestTrack v2
+// FONTOS: minden ár és érték HUF-ban tárolódik
+// A vételár = amount(HUF) / quantity, így az akkori árfolyam automatikusan benne van
 
 import * as XLSX from "xlsx";
 import { uid } from "../utils";
 import { appLog } from "./logger";
 
-// XTB ticker → Yahoo ticker + natív deviza
-function resolveTickerInfo(xtbTicker = "") {
-  if (xtbTicker.endsWith(".US")) {
-    return { ticker: xtbTicker.replace(".US", ""), currency: "USD" };
-  }
-  if (xtbTicker.endsWith(".NL")) {
-    // ASML.NL → Yahoo-n ASML (US listing USD-ben)
-    return { ticker: xtbTicker.replace(".NL", ""), currency: "USD" };
-  }
-  if (xtbTicker.endsWith(".DE")) {
-    // HAG.DE → Yahoo-n HAG.DE (EUR)
-    return { ticker: xtbTicker, currency: "EUR" };
-  }
-  if (xtbTicker.endsWith(".UK") || xtbTicker.endsWith(".L")) {
-    return { ticker: xtbTicker.replace(".UK", ".L"), currency: "GBP" };
-  }
-  // Ismeretlen → megtartjuk, USD feltételezés
-  return { ticker: xtbTicker, currency: "USD" };
+// Yahoo ticker mapping – az árfrissítéshez kell
+function resolveYahooTicker(xtbTicker = "") {
+  if (xtbTicker.endsWith(".US"))  return xtbTicker.replace(".US", "");
+  if (xtbTicker.endsWith(".NL"))  return xtbTicker.replace(".NL", "");
+  if (xtbTicker.endsWith(".UK"))  return xtbTicker.replace(".UK", ".L");
+  // .DE marad (pl. HAG.DE Yahoo-n is HAG.DE)
+  return xtbTicker;
 }
 
 function getCategory(xtbTicker = "", instrumentName = "") {
   const name = instrumentName.toUpperCase();
   if (name.includes("ETF") || name.includes("UCITS")) return "ETF";
-  if (xtbTicker.endsWith(".DE") && name.includes("ETF")) return "ETF";
   return "Részvény";
 }
 
 function parseComment(comment = "") {
-  // "OPEN BUY 0.1351 @ 65.50" vagy "CLOSE SELL 0.09 @ 192.15"
   try {
     const parts = String(comment).trim().split(/\s+/);
     const qty   = parseFloat(parts[2]);
@@ -61,14 +50,13 @@ export function parseXTBFile(arrayBuffer) {
 
   const getPos = (xtbTicker, name) => {
     if (!positions.has(xtbTicker)) {
-      const { ticker, currency } = resolveTickerInfo(xtbTicker);
       positions.set(xtbTicker, {
         id:           uid(),
-        name:         name || ticker,
-        ticker,
+        name:         name || xtbTicker,
+        ticker:       resolveYahooTicker(xtbTicker),
         xtbTicker,
         category:     getCategory(xtbTicker, name),
-        currency,         // USD / EUR / GBP – natív deviza
+        currency:     "HUF",   // MINDEN HUF-ban tárolódik
         currentPrice: 0,
         realizedPnL:  0,
         dividends:    0,
@@ -80,7 +68,7 @@ export function parseXTBFile(arrayBuffer) {
     return positions.get(xtbTicker);
   };
 
-  // ── Cash Operations sheet ─────────────────────────────────────────────────
+  // ── Cash Operations ────────────────────────────────────────────────────────
   if (wb.SheetNames.includes("Cash Operations")) {
     const ws   = wb.Sheets["Cash Operations"];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
@@ -94,20 +82,24 @@ export function parseXTBFile(arrayBuffer) {
 
       const pos     = getPos(ticker, instrument);
       const dateStr = typeof time === "string" ? time.slice(0, 10) : excelDateToStr(time);
+      // amount: negatív = vétel (HUF ment ki), pozitív = eladás (HUF jött be)
       const amt     = parseFloat(String(amount).replace(",", ".")) || 0;
 
       if (type === "Stock purchase" && String(comment).includes("OPEN BUY")) {
         const parsed = parseComment(comment);
-        if (parsed) {
+        if (parsed && parsed.qty > 0) {
+          const hufTotal    = Math.abs(amt);                    // pl. 5445 HUF
+          const hufPerShare = hufTotal / parsed.qty;            // HUF/db vételár
+
           pos.lots.push({
             id:       String(id) || uid(),
-            price:    parsed.price,   // natív devizában (USD/EUR)
+            price:    Math.round(hufPerShare * 100) / 100,      // HUF/db
             quantity: parsed.qty,
             date:     dateStr,
-            notes:    "",
+            notes:    `${parsed.qty}db @ $${parsed.price}`,     // eredetit megjegyezzük
           });
           if (pos.name === ticker) pos.name = instrument || ticker;
-          appLog.info(`XTB lot: ${ticker} ${parsed.qty}db @ ${parsed.price} ${pos.currency}`);
+          appLog.info(`XTB lot: ${ticker} ${parsed.qty}db @ ${hufPerShare.toFixed(0)} HUF/db (${hufTotal.toFixed(0)} HUF)`);
         }
       } else if (type === "Stock sell" && String(comment).includes("CLOSE")) {
         const parsed = parseComment(comment);
@@ -116,7 +108,7 @@ export function parseXTBFile(arrayBuffer) {
             date:     dateStr,
             qty:      parsed.qty,
             price:    parsed.price,
-            proceeds: Math.abs(amt),
+            proceeds: Math.abs(amt),  // HUF bevétel
           });
         }
       } else if (type === "Dividend") {
@@ -125,7 +117,7 @@ export function parseXTBFile(arrayBuffer) {
     }
   }
 
-  // ── Closed Positions sheet ────────────────────────────────────────────────
+  // ── Closed Positions: realizált P&L (HUF-ban van az XTB-ben) ──────────────
   if (wb.SheetNames.includes("Closed Positions")) {
     const ws   = wb.Sheets["Closed Positions"];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
@@ -137,21 +129,22 @@ export function parseXTBFile(arrayBuffer) {
       const row    = rows[i];
       const ticker = row[2];
       const pnl    = parseFloat(String(row[10]).replace(",", ".")) || 0;
-      if (!ticker || isNaN(pnl)) continue;
+      if (!ticker) continue;
       if (positions.has(ticker)) {
         positions.get(ticker).realizedPnL += pnl;
+        appLog.info(`XTB realizált P&L: ${ticker} ${pnl.toFixed(0)} HUF`);
       }
     }
   }
 
-  // ── Szűrés: csak nyitott pozíciók ────────────────────────────────────────
+  // ── Szűrés: csak nyitott pozíciók ─────────────────────────────────────────
   const result = [];
   for (const pos of positions.values()) {
     const totalBought = pos.lots.reduce((s, l) => s + l.quantity, 0);
     const totalSold   = pos.sales.reduce((s, s2) => s + s2.qty, 0);
     const remaining   = Math.round((totalBought - totalSold) * 1e8) / 1e8;
 
-    appLog.info(`XTB pozíció: ${pos.xtbTicker} | lots=${pos.lots.length} bought=${totalBought.toFixed(4)} sold=${totalSold.toFixed(4)} remaining=${remaining.toFixed(4)} deviza=${pos.currency}`);
+    appLog.info(`XTB: ${pos.xtbTicker} | lots=${pos.lots.length} remaining=${remaining.toFixed(4)}`);
 
     if (pos.lots.length === 0 || remaining <= 0.000001) {
       appLog.info(`→ KIHAGYVA (lezárt): ${pos.xtbTicker}`);
@@ -159,10 +152,10 @@ export function parseXTBFile(arrayBuffer) {
     }
 
     const { xtbTicker, dividends, ...clean } = pos;
-    if (dividends > 0) clean.notes += ` · Osztalék: ${dividends.toFixed(2)} HUF`;
+    if (dividends > 0) clean.notes += ` · Osztalék: ${dividends.toFixed(0)} HUF`;
     result.push(clean);
   }
 
-  appLog.info(`✓ XTB import kész: ${result.length} nyitott pozíció`);
+  appLog.info(`✓ XTB import kész: ${result.length} nyitott pozíció (HUF alapú)`);
   return result;
 }
