@@ -19,7 +19,7 @@ async function searchTickers(query) {
       if (text.trim().startsWith("<")) throw new Error();
       const data = JSON.parse(text);
       return (data?.quotes || [])
-        .filter(q => q.symbol && q.shortname || q.longname)
+        .filter(q => q.symbol && (q.shortname || q.longname))
         .slice(0, 6)
         .map(q => ({
           symbol:   q.symbol,
@@ -27,6 +27,7 @@ async function searchTickers(query) {
           exchange: q.exchange || q.fullExchangeName || "",
           type:     q.quoteType || "EQUITY",
           currency: q.currency || "USD",
+          price:    q.regularMarketPrice || null,
         }));
     } catch {}
   }
@@ -134,6 +135,7 @@ function TickerSearch({ value, onSelect, inputStyle, labelStyle }) {
                 <div style={{ fontSize:10, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
                   {item.symbol} · {item.exchange}
                   {item.currency && item.currency !== "USD" && ` · ${item.currency}`}
+                  {item.price && <span style={{ color:T.accent.green, marginLeft:6 }}>{item.price.toFixed(2)}</span>}
                 </div>
               </div>
               {/* Típus */}
@@ -182,6 +184,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
     set("name",     item.name);
     set("currency", item.currency || "HUF");
     set("category", typeToCategory(item.type));
+    if (item.price) set("currentPrice", String(item.price));
   };
 
   const handleSave = () => {
