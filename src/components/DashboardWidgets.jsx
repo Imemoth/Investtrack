@@ -61,12 +61,14 @@ export function TopMovers({ investments }) {
 // ─── CURRENCY EXPOSURE ────────────────────────────────────────────────────────
 export function CurrencyExposure({ investments }) {
   const data = useMemo(() => {
-    const total = investments.reduce((s, i) => s + i.currentPrice * i.quantity, 0);
     const byCurrency = {};
     investments.forEach(inv => {
-      const v = inv.currentPrice * inv.quantity;
+      const { value, cost } = calcPnL(inv);
+      const v = value > 0 ? value : cost; // cost basis ha nincs árfolyam
+      if (v <= 0) return;
       byCurrency[inv.currency] = (byCurrency[inv.currency] || 0) + v;
     });
+    const total = Object.values(byCurrency).reduce((s, v) => s + v, 0);
     const CURR_COLORS = { HUF: "#6EE7B7", USD: "#93C5FD", EUR: "#FDE68A", GBP: "#C4B5FD" };
     const FLAGS       = { HUF: "🇭🇺", USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧" };
     return Object.entries(byCurrency)
@@ -317,12 +319,8 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
     return { ...o, hufValue: huf, displayValue: disp };
   };
 
-  // Összesített pending érték megjelenítési devizában
-  const totalDisplay = orders.reduce((s, o) => {
-    const c = convertOrder(o);
-    return s + (c.displayValue || 0);
-  }, 0);
-  const hasRates = Object.keys(fxRates).length > 0;
+  // Összesített HUF érték
+  const totalHuf = orders.reduce((s, o) => s + (o.hufTotal || 0), 0);
 
   const addOrder = () => {
     if (!form.name.trim() || !limitPrice) return;
@@ -357,7 +355,7 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
   return (
     <div style={glassCard(T, { padding:16 })}>
       {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: totalDisplay > 0 ? 8 : 14 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: totalHuf > 0 ? 8 : 14 }}>
         <div style={{ fontSize:11, color:T.text.secondary, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700 }}>
           ⏳ Függőben lévő megbízások
           {orders.length > 0 && <span style={{ marginLeft:8, color:T.text.tertiary, fontWeight:400 }}>({orders.length})</span>}
@@ -372,16 +370,12 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
         </button>
       </div>
 
-      {/* Összesített érték konvertálva */}
-      {totalDisplay > 0 && (
+      {totalHuf > 0 && (
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, padding:"8px 12px", background:"rgba(253,214,138,0.06)", border:`1px solid rgba(253,214,138,0.2)`, borderRadius:T.radius.sm }}>
-          <span style={{ fontSize:12, color:T.text.secondary }}>Összesen ({displayCurrency})</span>
-          <div style={{ textAlign:"right" }}>
-            <div style={{ fontSize:15, fontWeight:700, color:T.accent.yellow, fontFamily:"'DM Mono',monospace" }}>
-              {CURR_SYMBOL[displayCurrency]}{fmtNum(totalDisplay, 2)}
-            </div>
-            {!hasRates && <div style={{ fontSize:10, color:T.text.tertiary }}>🔄 Frissítsd az árfolyamot</div>}
-          </div>
+          <span style={{ fontSize:12, color:T.text.secondary }}>Összesen befektetendő</span>
+          <span style={{ fontSize:15, fontWeight:700, color:T.accent.yellow, fontFamily:"'DM Mono',monospace" }}>
+            {fmtNum(totalHuf, 0)} Ft
+          </span>
         </div>
       )}
       {showAdd && (
@@ -486,8 +480,8 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
           <span style={{ fontSize:11 }}>pl. DFNS.UK Buy Limit @ 61.41 USD</span>
         </div>
       ) : orders.map(o => {
-        const conv = convertOrder(o);
-        const showNative = o.currency !== displayCurrency && conv.displayValue;
+        const huf = o.hufTotal || 0;
+        const hasHuf = huf > 0;
         return (
           <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
             <span style={{ fontSize:10, fontWeight:800, background:(TYPE_COLOR[o.type]||"#94A3B8")+"20", color:TYPE_COLOR[o.type]||"#94A3B8", borderRadius:4, padding:"2px 6px", flexShrink:0 }}>
@@ -500,34 +494,31 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
               <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace", marginTop:2 }}>
                 {fmtNum(o.limitPrice, 2)} {o.currency}
                 {o.quantity > 0 && ` · ${fmtNum(o.quantity, 4)} db`}
-                {o.savedFxRate > 0 && o.currency !== "HUF" && ` · fx: ${fmtNum(o.savedFxRate, 1)}`}
+                {o.savedFxRate > 0 && o.currency !== "HUF" && (
+                  <span style={{ color:T.accent.blue, opacity:0.7 }}> · fx:{fmtNum(o.savedFxRate, 1)}</span>
+                )}
                 {o.expiry && ` · ${o.expiry}-ig`}
               </div>
             </div>
-            {o.totalNative > 0 && (
-              <div style={{ textAlign:"right", flexShrink:0 }}>
-                {/* Konvertált érték */}
-                {conv.displayValue ? (
-                  <>
-                    <div style={{ fontSize:13, fontWeight:700, color:T.text.primary, fontFamily:"'DM Mono',monospace" }}>
-                      {CURR_SYMBOL[displayCurrency]}{fmtNum(conv.displayValue, 2)}
+            {/* Érték: HUF elsődleges, natív másodlagos */}
+            <div style={{ textAlign:"right", flexShrink:0 }}>
+              {hasHuf ? (
+                <>
+                  <div style={{ fontSize:13, fontWeight:700, color:T.accent.yellow, fontFamily:"'DM Mono',monospace" }}>
+                    {fmtNum(huf, 0)} Ft
+                  </div>
+                  {o.currency !== "HUF" && o.totalNative > 0 && (
+                    <div style={{ fontSize:10, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
+                      {fmtNum(o.totalNative, 2)} {o.currency}
                     </div>
-                    {showNative && (
-                      <div style={{ fontSize:10, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
-                        {fmtNum(o.totalNative, 2)} {o.currency}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <div style={{ fontSize:13, fontWeight:700, color:T.text.primary, fontFamily:"'DM Mono',monospace" }}>
-                      {fmtNum(o.totalNative, 2)}
-                    </div>
-                    <div style={{ fontSize:10, color:T.text.tertiary }}>{o.currency}</div>
-                  </>
-                )}
-              </div>
-            )}
+                  )}
+                </>
+              ) : o.totalNative > 0 ? (
+                <div style={{ fontSize:13, fontWeight:700, color:T.text.primary, fontFamily:"'DM Mono',monospace" }}>
+                  {fmtNum(o.totalNative, 2)} {o.currency}
+                </div>
+              ) : null}
+            </div>
             <button onClick={() => removeOrder(o.id)} style={{ background:"none", border:"none", color:T.text.tertiary, cursor:"pointer", fontSize:16, padding:"0 4px", flexShrink:0 }}>✕</button>
           </div>
         );
