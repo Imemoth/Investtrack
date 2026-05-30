@@ -378,7 +378,7 @@ export default function App() {
       return s + (parseFloat(i.dividendYield) / 100) * calcPnL(i).value;
     }, 0);
 
-    const pendingTotal = loadPending().reduce((s, o) => s + (o.totalNative || parseFloat(o.totalValue) || 0), 0);
+    const pendingTotal = loadPending().reduce((s, o) => s + (o.hufTotal || 0), 0);
 
     return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
   }, [investments, closedPositions]);

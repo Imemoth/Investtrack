@@ -9,6 +9,10 @@ export function TopMovers({ investments }) {
   const [openWinners, setOpenWinners] = useState(false);
   const [openLosers,  setOpenLosers]  = useState(false);
 
+  const totalValue = useMemo(() =>
+    investments.reduce((s, i) => s + calcPnL(i).value, 0),
+  [investments]);
+
   const sorted = useMemo(() =>
     [...investments]
       .filter(i => i.currentPrice > 0)
@@ -22,32 +26,38 @@ export function TopMovers({ investments }) {
   const losers  = [...sorted].reverse().slice(0, 3);
   const MEDALS  = ["🥇","🥈","🥉"];
 
-  const Row = ({ inv, rank, isWinner }) => (
-    <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
-      <span style={{ fontSize:15, width:22, textAlign:"center", flexShrink:0 }}>{MEDALS[rank]}</span>
-      <div style={{ width:32, height:32, borderRadius:T.radius.md, background:CATEGORY_COLORS[inv.category]+"20", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-        <span style={{ fontSize:9, fontWeight:800, color:CATEGORY_COLORS[inv.category], fontFamily:"'DM Mono',monospace" }}>{(inv.ticker||inv.name).slice(0,4)}</span>
-      </div>
-      <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:13, fontWeight:600, color:T.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{inv.name}</div>
-        <div style={{ fontSize:11, color:T.text.secondary, fontFamily:"'DM Mono',monospace" }}>{fmtNum(inv.value, 0)} Ft</div>
-      </div>
-      <div style={{ textAlign:"right" }}>
-        <div style={{ fontSize:14, fontWeight:700, color:isWinner ? T.accent.green : T.accent.red, fontFamily:"'DM Mono',monospace" }}>
-          {isWinner?"+":""}{fmtNum(inv.pct, 2)}%
+  const Row = ({ inv, rank, isWinner }) => {
+    const portfolioPct = totalValue > 0 ? (inv.value / totalValue) * 100 : 0;
+    return (
+      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
+        <span style={{ fontSize:15, width:22, textAlign:"center", flexShrink:0 }}>{MEDALS[rank]}</span>
+        <div style={{ width:32, height:32, borderRadius:T.radius.md, background:CATEGORY_COLORS[inv.category]+"20", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+          <span style={{ fontSize:9, fontWeight:800, color:CATEGORY_COLORS[inv.category], fontFamily:"'DM Mono',monospace" }}>{(inv.ticker||inv.name).slice(0,4)}</span>
         </div>
-        <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
-          {isWinner?"+":""}{fmtNum(inv.abs, 0)} Ft
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:13, fontWeight:600, color:T.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{inv.name}</div>
+          <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
+            {fmtNum(inv.value, 0)} Ft · portfólió <span style={{ color:T.accent.blue }}>{fmtNum(portfolioPct, 1)}%</span>
+          </div>
+        </div>
+        <div style={{ textAlign:"right" }}>
+          <div style={{ fontSize:14, fontWeight:700, color:isWinner ? T.accent.green : T.accent.red, fontFamily:"'DM Mono',monospace" }}>
+            {isWinner?"+":""}{fmtNum(inv.pct, 2)}%
+          </div>
+          <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
+            {isWinner?"+":""}{fmtNum(inv.abs, 0)} Ft
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const AccordionSection = ({ isWinner, isOpen, toggle }) => {
-    const list = isWinner ? winners : losers;
-    const best = list[0];
+    const list  = isWinner ? winners : losers;
+    const best  = list[0];
     const color = isWinner ? T.accent.green : T.accent.red;
     const icon  = isWinner ? "🏆" : "📉";
+    const bestPortPct = best && totalValue > 0 ? (best.value / totalValue) * 100 : 0;
     return (
       <div style={glassCard(T, { padding:0, overflow:"hidden" })}>
         <button onClick={toggle} style={{
@@ -57,15 +67,20 @@ export function TopMovers({ investments }) {
         }}>
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
             <span style={{ fontSize:14 }}>{icon}</span>
-            <span style={{ fontSize:11, color:isWinner ? T.accent.green : T.accent.red, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700 }}>
+            <span style={{ fontSize:11, color, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700 }}>
               {isWinner ? "Top nyertesek" : "Top vesztesek"}
             </span>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:6 }}>
             {!isOpen && best && (
-              <span style={{ fontSize:12, color, fontFamily:"'DM Mono',monospace", fontWeight:700 }}>
-                {isWinner?"+":""}{fmtNum(best.pct, 2)}% {best.ticker||best.name}
-              </span>
+              <>
+                <span style={{ fontSize:12, color, fontFamily:"'DM Mono',monospace", fontWeight:700 }}>
+                  {isWinner?"+":""}{fmtNum(best.pct, 2)}%
+                </span>
+                <span style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
+                  {best.ticker||best.name} · {fmtNum(bestPortPct,1)}% port.
+                </span>
+              </>
             )}
             <span style={{ color:T.text.tertiary, fontSize:11 }}>{isOpen ? "▲" : "▼"}</span>
           </div>
