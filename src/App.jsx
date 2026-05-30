@@ -1,9 +1,17 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
 import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll } from "./utils";
 import { refreshAllPrices } from "./services/priceService";
 import { parseXTBFile } from "./services/xtbImporter";
+import {
+  supabase, onAuthStateChange, signOut,
+  fetchInvestments, upsertInvestment, upsertInvestments, deleteInvestment, deleteAllInvestments,
+  fetchClosedPositions, upsertClosedPositions, deleteAllClosedPositions,
+  fetchPendingOrders, upsertPendingOrder, deletePendingOrder,
+  savePortfolioSnapshot, migrateFromLocalStorage,
+} from "./services/supabase";
+import { AuthScreen } from "./components/AuthScreen";
 import { THEME as T, LIGHT_THEME, glassCard, haptic, KEYFRAMES } from "./design-system";
 
 import { DonutChart, Sparkline, Modal, Toast, LogModal, PortfolioSkeleton, DashboardSkeleton } from "./components/ui";
@@ -80,6 +88,9 @@ function InvRow({ inv, value, abs, pct, avgBuyPrice, quantity, up, theme, onDeta
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
+  const [user,            setUser]            = useState(undefined); // undefined = loading
+  const [dbReady,         setDbReady]         = useState(false);
+  const syncRef = useRef(false); // megakadályozza a dupla szinkronizálást
   // ── State ──
   const [investments,     setInvestments]     = useState(() => {
     try {
@@ -130,6 +141,18 @@ export default function App() {
     return () => clearTimeout(t);
   }, []);
 
+  // ── Auth loading / gate ──────────────────────────────────────────────────
+  if (user === undefined) {
+    return (
+      <div style={{ minHeight:"100dvh", display:"flex", alignItems:"center", justifyContent:"center", background: T.bg.base }}>
+        <div style={{ fontSize:24, animation:"spin 1s linear infinite" }}>⟳</div>
+      </div>
+    );
+  }
+  if (user === null) {
+    return <AuthScreen />;
+  }
+
   const theme = isDark ? T : LIGHT_THEME;
   const toggleTheme = () => {
     setIsDark(v => { localStorage.setItem("investtrack_theme", v ? "light" : "dark"); return !v; });
@@ -156,7 +179,52 @@ export default function App() {
 
   const isMobile = window.innerWidth < 700;
 
-  // ── Persistence ──
+  // ── Toast ──
+  const showToast = (msg, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // ── Auth state ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+    const { data: { subscription } } = onAuthStateChange(setUser);
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ── Adatok betöltése bejelentkezés után ──────────────────────────────────
+  useEffect(() => {
+    if (!user || syncRef.current) return;
+    syncRef.current = true;
+    async function loadData() {
+      try {
+        setIsBooting(true);
+        // LocalStorage migráció ha van régi adat
+        const hasLocal = localStorage.getItem("investtrack_v2") || localStorage.getItem("investtrack_v1");
+        if (hasLocal) {
+          const parsed = JSON.parse(hasLocal || "[]");
+          if (parsed.length > 0) {
+            await migrateFromLocalStorage();
+            localStorage.removeItem("investtrack_v2"); localStorage.removeItem("investtrack_v1");
+            localStorage.removeItem("investtrack_closed"); localStorage.removeItem("investtrack_pending_v1");
+          }
+        }
+        const [invs, closed] = await Promise.all([fetchInvestments(), fetchClosedPositions()]);
+        setInvestments(migrateAll(invs));
+        setClosedPositions(closed);
+        setDbReady(true);
+        setIsBooting(false);
+      } catch (err) {
+        showToast("Adatbetöltés hiba: " + err.message, "error");
+        setIsBooting(false); setDbReady(true);
+      }
+    }
+    loadData();
+  }, [user]);
+
+  // ── Persistence: localStorage backup ──────────────────────────────────────
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(investments));
   }, [investments]);
@@ -164,12 +232,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("investtrack_closed", JSON.stringify(closedPositions));
   }, [closedPositions]);
-
-  // ── Toast ──
-  const showToast = (msg, type = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 4000);
-  };
 
   // ── Price refresh ──
   const handleRefresh = async () => {
@@ -221,7 +283,7 @@ export default function App() {
     showToast("Árak nullázva – nyomj Árfolyam frissítésre!", "info");
   };
 
-  const handleClearPortfolio = () => {
+  const handleClearPortfolio = async () => {
     setInvestments([]);
     setClosedPositions([]);
     localStorage.removeItem("investtrack_v2");
@@ -231,16 +293,27 @@ export default function App() {
     setLastRefreshed(null);
     setConfirmClear(false);
     haptic("heavy");
+    if (user) {
+      try {
+        await Promise.all([deleteAllInvestments(), deleteAllClosedPositions()]);
+      } catch(e) { console.warn("Törlés hiba:", e.message); }
+    }
     showToast("Portfólió törölve!", "info");
   };
 
-  const handleSell = ({ updatedInv, sale, fullyClose }) => {
+  const handleSell = async ({ updatedInv, sale, fullyClose }) => {
     setInvestments(prev => {
       if (fullyClose) return prev.filter(i => i.id !== updatedInv.id);
       return prev.map(i => i.id === updatedInv.id ? updatedInv : i);
     });
     setSellInv(null);
     addTransaction({ ...updatedInv, ...sale }, "sell");
+    if (user) {
+      try {
+        if (fullyClose) await deleteInvestment(updatedInv.id);
+        else            await upsertInvestment(updatedInv);
+      } catch(e) { console.warn("Eladás sync hiba:", e.message); }
+    }
     const pnlStr = (sale.realizedPnL >= 0 ? "+" : "") + fmtNum(sale.realizedPnL, 0) + " " + sale.currency;
     showToast(`Eladás rögzítve! Realizált P&L: ${pnlStr}`, sale.realizedPnL >= 0 ? "success" : "info");
   };
@@ -301,7 +374,7 @@ export default function App() {
     // XTB XLSX felismerés
     if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
       const reader = new FileReader();
-      reader.onload = ev => {
+      reader.onload = async ev => {
         try {
           const result = parseXTBFile(ev.target.result);
           const parsed = result.open;
@@ -318,9 +391,19 @@ export default function App() {
               setClosedPositions(closed);
               localStorage.removeItem("investtrack_last_refresh");
               setLastRefreshed(null);
+              if (user) {
+                await deleteAllInvestments();
+                await deleteAllClosedPositions();
+                await upsertInvestments(parsed);
+                await upsertClosedPositions(closed);
+              }
             } else {
               setInvestments(prev => [...prev, ...parsed]);
               setClosedPositions(prev => [...prev, ...closed]);
+              if (user) {
+                await upsertInvestments(parsed);
+                await upsertClosedPositions(closed);
+              }
             }
           } else {
             setInvestments(parsed);
@@ -444,6 +527,8 @@ export default function App() {
         onMulti={() => setFeatureModal("multi")}
         onPush={() => setFeatureModal("push")}
         onClearPortfolio={() => setConfirmClear(true)}
+        onSignOut={signOut}
+        userEmail={user?.email}
         isDark={isDark}
         onToggleTheme={toggleTheme}
       />

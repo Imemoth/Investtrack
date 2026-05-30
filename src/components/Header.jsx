@@ -11,6 +11,7 @@ export function Header({
   onTxLog, onAI, onLog,
   onPnL, onDCA, onTax, onMulti, onPush,
   onClearPortfolio,
+  onSignOut, userEmail,
   isDark, onToggleTheme,
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -205,6 +206,13 @@ export function Header({
 
           <Divider label="Veszélyzóna" />
           <MenuItem icon="🗑️" label="Portfólió törlése"  onClick={onClearPortfolio} color={T.accent.red} />
+          {onSignOut && (
+            <>
+              <Divider label="Fiók" />
+              {userEmail && <div style={{ fontSize:11, color:T.text.tertiary, padding:"4px 2px" }}>👤 {userEmail}</div>}
+              <MenuItem icon="🚪" label="Kijelentkezés" onClick={close(onSignOut)} color={T.text.tertiary} />
+            </>
+          )}
 
           <Divider label="Fejlesztő" />
           <MenuItem icon="🪲" label="Debug log"          onClick={onLog} />
