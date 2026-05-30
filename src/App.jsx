@@ -144,8 +144,10 @@ export default function App() {
   // ── Auth loading / gate ──────────────────────────────────────────────────
   if (user === undefined) {
     return (
-      <div style={{ minHeight:"100dvh", display:"flex", alignItems:"center", justifyContent:"center", background: T.bg.base }}>
-        <div style={{ fontSize:24, animation:"spin 1s linear infinite" }}>⟳</div>
+      <div style={{ minHeight:"100dvh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", background:"#070B14", gap:16 }}>
+        <style>{`@keyframes _spin { to { transform: rotate(360deg); } }`}</style>
+        <div style={{ fontSize:32, animation:"_spin 1s linear infinite", display:"inline-block" }}>⟳</div>
+        <div style={{ fontSize:13, color:"#4B5563" }}>Csatlakozás...</div>
       </div>
     );
   }
@@ -187,11 +189,23 @@ export default function App() {
 
   // ── Auth state ───────────────────────────────────────────────────────────
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Timeout: ha 4 másodpercen belül nem válaszol → null (bejelentkezési képernyő)
+    const timeout = setTimeout(() => {
+      setUser(prev => prev === undefined ? null : prev);
+    }, 4000);
+
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      clearTimeout(timeout);
+      if (error) console.warn("Auth hiba:", error.message);
       setUser(session?.user ?? null);
+    }).catch(err => {
+      clearTimeout(timeout);
+      console.warn("Auth kapcsolat hiba:", err);
+      setUser(null);
     });
+
     const { data: { subscription } } = onAuthStateChange(setUser);
-    return () => subscription.unsubscribe();
+    return () => { clearTimeout(timeout); subscription.unsubscribe(); };
   }, []);
 
   // ── Adatok betöltése bejelentkezés után ──────────────────────────────────
