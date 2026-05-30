@@ -263,30 +263,33 @@ export default function App() {
 
   // ── Stats ──
   const stats = useMemo(() => {
-    const totalCost  = investments.reduce((s, i) => s + calcPnL(i).cost, 0);
-    const totalValue = investments.reduce((s, i) => s + i.currentPrice * i.quantity, 0);
+    const pnlData    = investments.map(i => calcPnL(i));
+    const totalCost  = pnlData.reduce((s, p) => s + p.cost, 0);
+    const totalValue = pnlData.reduce((s, p) => s + p.value, 0);
     const totalPnL   = totalValue - totalCost;
     const totalPct   = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
 
     const catBreakdown = CATEGORIES
       .map(c => {
-        const v = investments.filter(i => i.category === c).reduce((s, i) => s + i.currentPrice * i.quantity, 0);
+        const v = investments
+          .filter(i => i.category === c)
+          .reduce((s, i) => s + calcPnL(i).value, 0);
         return { label: c, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: CATEGORY_COLORS[c] };
       })
       .filter(d => d.value > 0);
 
     const posBreakdown = [...investments]
       .map((inv, idx) => {
-        const v = inv.currentPrice * inv.quantity;
+        const v = calcPnL(inv).value;
         return { label: inv.ticker || inv.name, fullName: inv.name, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: POSITION_PALETTE[idx % POSITION_PALETTE.length] };
       })
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
 
     const totalRealizedPnL = investments.reduce((s, i) => s + (i.realizedPnL || 0), 0);
-    const totalDividend = investments.reduce((s, i) => {
+    const totalDividend    = investments.reduce((s, i) => {
       if (!i.dividendYield || !i.currentPrice) return s;
-      return s + (parseFloat(i.dividendYield) / 100) * i.currentPrice * i.quantity;
+      return s + (parseFloat(i.dividendYield) / 100) * calcPnL(i).value;
     }, 0);
 
     return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL };
@@ -301,10 +304,10 @@ export default function App() {
     );
     return [...list].sort((a, b) => {
       let va, vb;
-      if      (sortBy === "name")  { va = a.name;                      vb = b.name; }
-      else if (sortBy === "value") { va = a.currentPrice * a.quantity;  vb = b.currentPrice * b.quantity; }
-      else if (sortBy === "pnl")   { va = calcPnL(a).pct;              vb = calcPnL(b).pct; }
-      else if (sortBy === "date")  { va = a.buyDate;                    vb = b.buyDate; }
+      if      (sortBy === "name")  { va = a.name;             vb = b.name; }
+      else if (sortBy === "value") { va = calcPnL(a).value;   vb = calcPnL(b).value; }
+      else if (sortBy === "pnl")   { va = calcPnL(a).pct;     vb = calcPnL(b).pct; }
+      else if (sortBy === "date")  { va = a.lots?.[0]?.date || a.buyDate || ""; vb = b.lots?.[0]?.date || b.buyDate || ""; }
       else                         { va = a[sortBy];                    vb = b[sortBy]; }
       return (va < vb ? -1 : va > vb ? 1 : 0) * (sortDir === "asc" ? 1 : -1);
     });
