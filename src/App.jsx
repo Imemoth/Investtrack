@@ -22,11 +22,15 @@ export default function App() {
   // ── State ──
   const [investments,     setInvestments]     = useState(() => {
     try {
-      // v1 → v2 migráció betöltéskor
       const raw = JSON.parse(localStorage.getItem("investtrack_v2") || localStorage.getItem("investtrack_v1") || "[]");
       return migrateAll(raw);
     } catch { return []; }
   });
+  const [closedPositions, setClosedPositions] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("investtrack_closed") || "[]"); }
+    catch { return []; }
+  });
+  const [showClosed,      setShowClosed]      = useState(false);
   const [sellInv,         setSellInv]         = useState(null);
   const [modal,           setModal]           = useState(null);
   const [editing,         setEditing]         = useState(null);
@@ -92,6 +96,10 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(investments));
   }, [investments]);
 
+  useEffect(() => {
+    localStorage.setItem("investtrack_closed", JSON.stringify(closedPositions));
+  }, [closedPositions]);
+
   // ── Toast ──
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
@@ -146,13 +154,15 @@ export default function App() {
 
   const handleClearPortfolio = () => {
     setInvestments([]);
+    setClosedPositions([]);
     localStorage.removeItem("investtrack_v2");
     localStorage.removeItem("investtrack_v1");
+    localStorage.removeItem("investtrack_closed");
     localStorage.removeItem("investtrack_last_refresh");
     setLastRefreshed(null);
     setConfirmClear(false);
     haptic("heavy");
-    showToast("Portfólió törölve — importálhatod az újat!", "info");
+    showToast("Portfólió törölve!", "info");
   };
 
   const handleSell = ({ updatedInv, sale, fullyClose }) => {
@@ -224,29 +234,31 @@ export default function App() {
       const reader = new FileReader();
       reader.onload = ev => {
         try {
-          const parsed = parseXTBFile(ev.target.result);
-          if (!parsed.length) throw new Error("Nem találtam nyitott pozíciókat");
-          // Ha van meglévő adat → kérdezünk
+          const result = parseXTBFile(ev.target.result);
+          const parsed = result.open;
+          const closed = result.closed;
+          if (!parsed.length && !closed.length) throw new Error("Nem találtam pozíciókat");
           if (investments.length > 0) {
             const choice = window.confirm(
-              `${parsed.length} pozíciót találtam az XTB fájlban.\n\n` +
-              `OK = Csere (jelenlegi ${investments.length} pozíció törlődik)\n` +
-              `Mégse = Hozzáadás a meglévőkhöz`
+              `${parsed.length} nyitott + ${closed.length} lezárt pozíció.\n\n` +
+              `OK = Csere (jelenlegi adatok törlődnek)\n` +
+              `Mégse = Hozzáadás`
             );
             if (choice) {
               setInvestments(parsed);
+              setClosedPositions(closed);
               localStorage.removeItem("investtrack_last_refresh");
               setLastRefreshed(null);
-              showToast(`✓ XTB import: ${parsed.length} pozíció (csere)!`);
             } else {
               setInvestments(prev => [...prev, ...parsed]);
-              showToast(`✓ XTB import: ${parsed.length} pozíció hozzáadva!`);
+              setClosedPositions(prev => [...prev, ...closed]);
             }
           } else {
             setInvestments(parsed);
-            showToast(`✓ XTB import: ${parsed.length} pozíció betöltve!`);
+            setClosedPositions(closed);
           }
           setModal(null);
+          showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció`);
         } catch (err) {
           showToast("XTB import hiba: " + err.message, "error");
         }
@@ -286,14 +298,15 @@ export default function App() {
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
 
-    const totalRealizedPnL = investments.reduce((s, i) => s + (i.realizedPnL || 0), 0);
+    const totalRealizedPnL = investments.reduce((s, i) => s + (i.realizedPnL || 0), 0)
+      + closedPositions.reduce((s, c) => s + (c.pnl || 0), 0);
     const totalDividend    = investments.reduce((s, i) => {
       if (!i.dividendYield || !i.currentPrice) return s;
       return s + (parseFloat(i.dividendYield) / 100) * calcPnL(i).value;
     }, 0);
 
     return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL };
-  }, [investments]);
+  }, [investments, closedPositions]);
 
   // ── Filtered & sorted list ──
   const displayed = useMemo(() => {
@@ -638,6 +651,65 @@ export default function App() {
             </table>
           </div>
         )}
+
+        {/* ── Lezárt pozíciók ── */}
+        {closedPositions.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <button onClick={() => setShowClosed(v => !v)} style={{
+              width: "100%", ...glassCard(theme, { padding: "12px 16px" }),
+              cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", fontFamily: "inherit",
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: theme.text.primary }}>
+                📊 Lezárt pozíciók ({closedPositions.length})
+              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 12, fontFamily: "'DM Mono',monospace", fontWeight: 700,
+                  color: closedPositions.reduce((s,c) => s+c.pnl,0) >= 0 ? theme.accent.green : theme.accent.red }}>
+                  {closedPositions.reduce((s,c) => s+c.pnl,0) >= 0 ? "+" : ""}
+                  {fmtNum(closedPositions.reduce((s,c) => s+c.pnl,0), 0)} Ft
+                </span>
+                <span style={{ color: theme.text.tertiary }}>{showClosed ? "▲" : "▼"}</span>
+              </div>
+            </button>
+            {showClosed && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {closedPositions.filter(cp => cp.volume > 0).map((cp, i) => (
+                  <div key={cp.id || i} style={{ ...glassCard(theme, { padding: "12px 16px" }), opacity: 0.85 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 8, background: CATEGORY_COLORS[cp.category] + "20", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <span style={{ fontSize: 9, fontWeight: 800, color: CATEGORY_COLORS[cp.category], fontFamily: "'DM Mono',monospace" }}>{cp.ticker.slice(0,4)}</span>
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: theme.text.primary }}>{cp.name}</div>
+                          <div style={{ fontSize: 10, color: theme.text.tertiary, fontFamily: "'DM Mono',monospace" }}>{cp.openDate} → {cp.closeDate}</div>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'DM Mono',monospace", color: cp.pnl >= 0 ? theme.accent.green : theme.accent.red }}>
+                          {cp.pnl >= 0 ? "+" : ""}{fmtNum(cp.pnl, 0)} Ft
+                        </div>
+                        <div style={{ fontSize: 11, fontFamily: "'DM Mono',monospace", color: cp.pnlPct >= 0 ? theme.accent.green : theme.accent.red }}>
+                          {cp.pnlPct >= 0 ? "+" : ""}{fmtNum(cp.pnlPct, 2)}%
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, borderTop: `1px solid ${theme.border.subtle}`, paddingTop: 8 }}>
+                      {[["Db", fmtNum(cp.volume, 4)], ["Vétel", `$${fmtNum(cp.openUsdPrice, 2)}`], ["Zárás", `$${fmtNum(cp.closeUsdPrice, 2)}`],
+                        ["Befizetve", fmtNum(cp.purchaseHuf, 0) + " Ft"], ["Bevétel", fmtNum(cp.saleHuf, 0) + " Ft"], ["Dátum", cp.closeDate]].map(([l, v]) => (
+                        <div key={l}>
+                          <div style={{ fontSize: 9, color: theme.text.tertiary, textTransform: "uppercase", marginBottom: 2 }}>{l}</div>
+                          <div style={{ fontSize: 11, color: theme.text.secondary, fontFamily: "'DM Mono',monospace" }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         </>)}
         </> /* isBooting */}
       </main>
