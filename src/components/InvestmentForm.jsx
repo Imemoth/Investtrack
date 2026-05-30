@@ -1,28 +1,169 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { CATEGORIES, CURRENCIES, EMPTY_FORM } from "../constants";
 import { uid, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum } from "../utils";
 import { THEME as T, glassCard, haptic } from "../design-system";
 
+// ─── TICKER KERESŐ ────────────────────────────────────────────────────────────
+const PROXIES = [
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+];
+
+async function searchTickers(query) {
+  const url = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=8&newsCount=0&enableFuzzyQuery=true&enableNavLinks=false`;
+  for (const proxy of PROXIES) {
+    try {
+      const res  = await fetch(proxy(url), { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) throw new Error();
+      const text = await res.text();
+      if (text.trim().startsWith("<")) throw new Error();
+      const data = JSON.parse(text);
+      return (data?.quotes || [])
+        .filter(q => q.symbol && q.shortname || q.longname)
+        .slice(0, 6)
+        .map(q => ({
+          symbol:   q.symbol,
+          name:     q.shortname || q.longname || q.symbol,
+          exchange: q.exchange || q.fullExchangeName || "",
+          type:     q.quoteType || "EQUITY",
+          currency: q.currency || "USD",
+        }));
+    } catch {}
+  }
+  return [];
+}
+
+// Ticker típus → InvestTrack kategória
+function typeToCategory(type) {
+  if (type === "ETF")    return "ETF";
+  if (type === "MUTUALFUND") return "ETF";
+  if (type === "CRYPTOCURRENCY") return "Kriptó";
+  if (type === "FUTURE" || type === "COMMODITY") return "Árupiaci";
+  return "Részvény";
+}
+
+function TickerSearch({ value, onSelect, inputStyle, labelStyle }) {
+  const [query,    setQuery]    = useState(value || "");
+  const [results,  setResults]  = useState([]);
+  const [loading,  setLoading]  = useState(false);
+  const [open,     setOpen]     = useState(false);
+  const debounceRef = useRef(null);
+  const wrapRef     = useRef(null);
+
+  // Külső kattintásra bezár
+  useEffect(() => {
+    const h = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    document.addEventListener("touchstart", h);
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("touchstart", h); };
+  }, []);
+
+  const handleChange = (val) => {
+    setQuery(val);
+    clearTimeout(debounceRef.current);
+    if (val.length < 1) { setResults([]); setOpen(false); return; }
+    setLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      const res = await searchTickers(val);
+      setResults(res);
+      setOpen(res.length > 0);
+      setLoading(false);
+    }, 350);
+  };
+
+  const handleSelect = (item) => {
+    setQuery(item.symbol);
+    setOpen(false);
+    haptic("light");
+    onSelect(item);
+  };
+
+  const TYPE_COLORS = { ETF:"#93C5FD", EQUITY:"#6EE7B7", CRYPTOCURRENCY:"#F9A8D4", FUTURE:"#FDE68A" };
+
+  return (
+    <div ref={wrapRef} style={{ position:"relative" }}>
+      <label style={labelStyle}>Ticker keresés</label>
+      <div style={{ position:"relative" }}>
+        <input
+          style={{ ...inputStyle, paddingRight: loading ? 36 : 12,
+            border: `1px solid ${open ? T.accent.green+"60" : T.border.default}` }}
+          value={query}
+          onChange={e => handleChange(e.target.value.toUpperCase())}
+          onFocus={() => results.length > 0 && setOpen(true)}
+          placeholder="pl. AAPL vagy Apple"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+        />
+        {loading && (
+          <div style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontSize:12, animation:"spin 1s linear infinite", display:"inline-block" }}>⟳</div>
+        )}
+      </div>
+
+      {/* Dropdown */}
+      {open && results.length > 0 && (
+        <div style={{
+          position:"absolute", top:"calc(100% + 4px)", left:0, right:0, zIndex:100,
+          background:"rgba(7,11,20,0.97)", border:`1px solid ${T.border.default}`,
+          borderRadius:T.radius.md, boxShadow:T.shadow.raised,
+          backdropFilter:T.blur.md, overflow:"hidden",
+        }}>
+          {results.map((item, i) => (
+            <button key={item.symbol} onClick={() => handleSelect(item)} style={{
+              width:"100%", background:"none", border:"none",
+              borderBottom: i < results.length-1 ? `1px solid ${T.border.subtle}` : "none",
+              padding:"10px 14px", cursor:"pointer", textAlign:"left",
+              display:"flex", alignItems:"center", gap:10,
+              transition:T.transition.fast,
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = T.bg.surface}
+              onMouseLeave={e => e.currentTarget.style.background = "none"}
+            >
+              {/* Ticker badge */}
+              <div style={{ width:42, height:32, borderRadius:6, background:(TYPE_COLORS[item.type]||"#94A3B8")+"20", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+                <span style={{ fontSize:9, fontWeight:800, color:TYPE_COLORS[item.type]||"#94A3B8", fontFamily:"'DM Mono',monospace" }}>
+                  {item.symbol.slice(0,5)}
+                </span>
+              </div>
+              {/* Név + info */}
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, fontWeight:600, color:T.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                  {item.name}
+                </div>
+                <div style={{ fontSize:10, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
+                  {item.symbol} · {item.exchange}
+                  {item.currency && item.currency !== "USD" && ` · ${item.currency}`}
+                </div>
+              </div>
+              {/* Típus */}
+              <span style={{ fontSize:9, fontWeight:700, color:TYPE_COLORS[item.type]||"#94A3B8", background:(TYPE_COLORS[item.type]||"#94A3B8")+"15", borderRadius:4, padding:"2px 6px", flexShrink:0 }}>
+                {item.type}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── INVESTMENT FORM ──────────────────────────────────────────────────────────
 export function InvestmentForm({ initial, onSave, onCancel }) {
-  // Migráció: ha régi formátum jön, lots tömbbé alakítjuk
   const initLots = initial?.lots?.length > 0
     ? initial.lots
     : initial?.buyPrice
       ? [{ id: uid(), price: String(initial.buyPrice), quantity: String(initial.quantity || ""), date: initial.buyDate || "", notes: "" }]
       : [{ id: uid(), price: "", quantity: "", date: "", notes: "" }];
 
-  const [form, setForm]   = useState({ ...EMPTY_FORM, ...initial });
-  const [lots, setLots]   = useState(initLots);
-  const [activeTab, setAT] = useState("lots"); // "lots" | "info"
+  const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
+  const [lots, setLots] = useState(initLots);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  // Lot műveletek
   const updateLot = (id, key, val) => setLots(ls => ls.map(l => l.id === id ? { ...l, [key]: val } : l));
   const addLot    = () => { setLots(ls => [...ls, { id: uid(), price: "", quantity: "", date: new Date().toISOString().slice(0,10), notes: "" }]); haptic("light"); };
   const removeLot = id => setLots(ls => ls.length > 1 ? ls.filter(l => l.id !== id) : ls);
 
-  // Összesítők
   const avgPrice  = calcAvgBuyPrice(lots);
   const totalQty  = calcTotalQty(lots);
   const totalCost = calcCostBasis(lots);
@@ -31,10 +172,17 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
     width: "100%", background: T.bg.inset, border: `1px solid ${T.border.default}`,
     borderRadius: T.radius.md, padding: "9px 12px", color: T.text.primary,
     fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box",
-    transition: "border-color 0.2s",
   };
   const labelStyle = { display: "block", fontSize: 11, color: T.text.secondary, marginBottom: 5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" };
   const grid2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 };
+
+  // Ticker kiválasztásakor automatikusan tölt
+  const handleTickerSelect = (item) => {
+    set("ticker",   item.symbol);
+    set("name",     item.name);
+    set("currency", item.currency || "HUF");
+    set("category", typeToCategory(item.type));
+  };
 
   const handleSave = () => {
     if (!form.name.trim()) return alert("Adj meg megnevezést!");
@@ -49,36 +197,34 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
       currentPrice: parseFloat(form.currentPrice) || 0,
       realizedPnL:  parseFloat(form.realizedPnL) || 0,
       sales:        form.sales || [],
-      // Visszafelé kompatibilitás
       buyPrice:     calcAvgBuyPrice(validLots),
       quantity:     calcTotalQty(validLots),
     });
   };
 
-  const TabBtn = ({ id, label }) => (
-    <button onClick={() => setAT(id)} style={{
-      flex: 1, background: activeTab === id ? T.bg.overlay : "none",
-      border: "none", borderRadius: T.radius.sm, padding: "7px",
-      cursor: "pointer", fontSize: 12, fontWeight: 700,
-      color: activeTab === id ? T.text.primary : T.text.secondary,
-      fontFamily: "inherit", transition: T.transition.fast,
-    }}>{label}</button>
-  );
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* Alap info */}
+      {/* Ticker keresés — teljes szélesség, legelöl */}
+      <TickerSearch
+        value={form.ticker}
+        onSelect={handleTickerSelect}
+        inputStyle={inputStyle}
+        labelStyle={labelStyle}
+      />
+
+      {/* Automatikusan töltött mezők — csak ha már van ticker */}
       <div style={grid2}>
         <div>
           <label style={labelStyle}>Megnevezés *</label>
-          <input style={inputStyle} value={form.name} onChange={e => set("name", e.target.value)} placeholder="pl. Apple Inc." />
+          <input style={{ ...inputStyle, background: form.name ? "rgba(110,231,183,0.05)" : T.bg.inset }} value={form.name} onChange={e => set("name", e.target.value)} placeholder="pl. Apple Inc." />
         </div>
         <div>
           <label style={labelStyle}>Ticker</label>
-          <input style={inputStyle} value={form.ticker || ""} onChange={e => set("ticker", e.target.value.toUpperCase())} placeholder="pl. AAPL" />
+          <input style={{ ...inputStyle, fontFamily:"'DM Mono',monospace", background: form.ticker ? "rgba(110,231,183,0.05)" : T.bg.inset }} value={form.ticker || ""} onChange={e => set("ticker", e.target.value.toUpperCase())} placeholder="pl. AAPL" />
         </div>
       </div>
+
       <div style={grid2}>
         <div>
           <label style={labelStyle}>Kategória</label>
@@ -93,6 +239,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
           </select>
         </div>
       </div>
+
       <div style={grid2}>
         <div>
           <label style={labelStyle}>Jelenlegi ár</label>
@@ -103,6 +250,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
           <input style={inputStyle} type="number" value={form.targetPrice || ""} onChange={e => set("targetPrice", e.target.value)} placeholder="Opcionális" />
         </div>
       </div>
+
       <div style={grid2}>
         <div>
           <label style={labelStyle}>Osztalék % / év</label>
@@ -118,25 +266,20 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <label style={{ ...labelStyle, marginBottom: 0 }}>📦 Vételi tételek</label>
-          <button onClick={addLot} style={{
-            background: "rgba(110,231,183,0.12)", border: `1px solid ${T.accent.green}40`,
-            borderRadius: T.radius.md, padding: "5px 12px", cursor: "pointer",
-            color: T.accent.green, fontSize: 12, fontWeight: 700, fontFamily: "inherit",
-          }}>+ Tétel hozzáadása</button>
+          <button onClick={addLot} style={{ background: "rgba(110,231,183,0.12)", border: `1px solid ${T.accent.green}40`, borderRadius: T.radius.md, padding: "5px 12px", cursor: "pointer", color: T.accent.green, fontSize: 12, fontWeight: 700, fontFamily: "inherit" }}>+ Tétel hozzáadása</button>
         </div>
-
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {lots.map((lot, i) => (
             <div key={lot.id} style={{ ...glassCard(T, { padding: 12 }), background: T.bg.inset }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <span style={{ fontSize: 11, color: T.text.tertiary, fontWeight: 700 }}>#{i + 1} tétel</span>
                 {lots.length > 1 && (
-                  <button onClick={() => removeLot(lot.id)} style={{ background: "none", border: "none", color: T.accent.red, cursor: "pointer", fontSize: 14, padding: "0 4px" }}>✕</button>
+                  <button onClick={() => removeLot(lot.id)} style={{ background: "none", border: "none", color: T.accent.red, cursor: "pointer", fontSize: 14 }}>✕</button>
                 )}
               </div>
               <div style={grid2}>
                 <div>
-                  <label style={{ ...labelStyle, fontSize: 10 }}>Vételár</label>
+                  <label style={{ ...labelStyle, fontSize: 10 }}>Vételár ({form.currency})</label>
                   <input style={{ ...inputStyle, fontSize: 13 }} type="number" value={lot.price} onChange={e => updateLot(lot.id, "price", e.target.value)} placeholder="0" />
                 </div>
                 <div>
@@ -156,11 +299,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
         {lots.some(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0) && (
           <div style={{ ...glassCard(T, { padding: 12 }), marginTop: 10, background: "rgba(110,231,183,0.06)", border: `1px solid rgba(110,231,183,0.2)` }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
-              {[
-                ["Átlag vételár", fmtNum(avgPrice, 2)],
-                ["Összmennyiség", fmtNum(totalQty, 4)],
-                ["Befektetett",  fmtNum(totalCost, 0)],
-              ].map(([l, v]) => (
+              {[["Átlag vételár", fmtNum(avgPrice, 2)], ["Összmennyiség", fmtNum(totalQty, 4)], ["Befektetett", fmtNum(totalCost, 0)]].map(([l, v]) => (
                 <div key={l}>
                   <div style={{ fontSize: 9, color: T.text.tertiary, textTransform: "uppercase", marginBottom: 3 }}>{l}</div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.accent.green, fontFamily: "'DM Mono',monospace" }}>{v}</div>
