@@ -45,18 +45,19 @@ export async function fetchInvestments() {
 
 // Egy befektetés upsert (insert vagy update)
 export async function upsertInvestment(inv) {
+  const userId = await getUserId();
   const { error } = await supabase
     .from("investments")
-    .upsert(investmentToDb(inv), { onConflict: "id" });
+    .upsert(investmentToDb(inv, userId), { onConflict: "id" });
   if (error) throw error;
 }
 
-// Több befektetés upsert egyszerre (pl. XTB import)
 export async function upsertInvestments(invs) {
   if (!invs.length) return;
+  const userId = await getUserId();
   const { error } = await supabase
     .from("investments")
-    .upsert(invs.map(investmentToDb), { onConflict: "id" });
+    .upsert(invs.map(i => investmentToDb(i, userId)), { onConflict: "id" });
   if (error) throw error;
 }
 
@@ -81,9 +82,16 @@ export async function deleteAllInvestments() {
 }
 
 // DB ↔ App konverzió
-function investmentToDb(inv) {
+async function getUserId() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Nincs bejelentkezett felhasználó");
+  return user.id;
+}
+
+function investmentToDb(inv, userId) {
   return {
     id:             inv.id,
+    user_id:        userId,
     name:           inv.name,
     ticker:         inv.ticker || null,
     category:       inv.category || "Részvény",
@@ -129,9 +137,10 @@ export async function fetchClosedPositions() {
 
 export async function upsertClosedPositions(positions) {
   if (!positions.length) return;
+  const userId = await getUserId();
   const { error } = await supabase
     .from("closed_positions")
-    .upsert(positions.map(closedToDb), { onConflict: "id" });
+    .upsert(positions.map(cp => closedToDb(cp, userId)), { onConflict: "id" });
   if (error) throw error;
 }
 
@@ -145,9 +154,10 @@ export async function deleteAllClosedPositions() {
   if (error) throw error;
 }
 
-function closedToDb(cp) {
+function closedToDb(cp, userId) {
   return {
     id:               cp.id,
+    user_id:          userId,
     name:             cp.name,
     ticker:           cp.ticker || null,
     xtb_ticker:       cp.xtbTicker || null,
@@ -203,9 +213,10 @@ export async function fetchPendingOrders() {
 }
 
 export async function upsertPendingOrder(order) {
+  const userId = await getUserId();
   const { error } = await supabase
     .from("pending_orders")
-    .upsert(pendingToDb(order), { onConflict: "id" });
+    .upsert(pendingToDb(order, userId), { onConflict: "id" });
   if (error) throw error;
 }
 
@@ -217,9 +228,10 @@ export async function deletePendingOrder(id) {
   if (error) throw error;
 }
 
-function pendingToDb(o) {
+function pendingToDb(o, userId) {
   return {
     id:            o.id,
+    user_id:       userId,
     name:          o.name,
     ticker:        o.ticker || null,
     type:          o.type || "Buy Limit",
@@ -255,10 +267,11 @@ function dbToPending(row) {
 // ─── PORTFOLIO SNAPSHOT ───────────────────────────────────────────────────────
 
 export async function savePortfolioSnapshot(totalValue, totalCost, totalPnl) {
+  const userId = await getUserId();
   const today = new Date().toISOString().slice(0, 10);
   const { error } = await supabase
     .from("portfolio_snapshots")
-    .upsert({ date: today, total_value: totalValue, total_cost: totalCost, total_pnl: totalPnl },
+    .upsert({ user_id: userId, date: today, total_value: totalValue, total_cost: totalCost, total_pnl: totalPnl },
              { onConflict: "user_id,date" });
   if (error) console.warn("Snapshot hiba:", error.message);
 }
