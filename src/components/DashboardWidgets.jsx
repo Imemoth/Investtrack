@@ -274,15 +274,44 @@ export function savePending(p) { localStorage.setItem(PENDING_KEY, JSON.stringif
 const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", currency:"USD", quantity:"", expiry:"", notes:"" };
 const TYPE_COLOR  = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
-export function PendingOrders() {
+export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
   const [orders,  setOrders]  = useState(loadPending);
   const [showAdd, setShowAdd] = useState(false);
   const [form,    setForm]    = useState(EMPTY_ORDER);
   const f = (k, v) => setForm(p => ({...p, [k]: v}));
 
-  const limitPrice = parseFloat(form.limitPrice) || 0;
-  const quantity   = parseFloat(form.quantity)   || 0;
-  const totalNative = limitPrice * quantity;           // natív devizában
+  const limitPrice  = parseFloat(form.limitPrice) || 0;
+  const quantity    = parseFloat(form.quantity)   || 0;
+  const totalNative = limitPrice * quantity;
+
+  // Konverzió HUF-ba: ha pl. USD → HUF, fxRates.USD = 360
+  const toHuf = (amount, currency) => {
+    if (currency === "HUF") return amount;
+    const rate = fxRates[currency];
+    return rate ? amount * rate : null; // null ha nincs rate
+  };
+
+  // Konverzió megjelenítési devizára
+  const toDisplay = (hufAmount) => {
+    if (!hufAmount) return null;
+    if (displayCurrency === "HUF") return hufAmount;
+    const rate = fxRates[displayCurrency];
+    return rate ? hufAmount / rate : null;
+  };
+
+  const convertOrder = (o) => {
+    const native = o.totalNative || 0;
+    const huf    = toHuf(native, o.currency);
+    const disp   = huf ? toDisplay(huf) : null;
+    return { ...o, hufValue: huf, displayValue: disp };
+  };
+
+  // Összesített pending érték megjelenítési devizában
+  const totalDisplay = orders.reduce((s, o) => {
+    const c = convertOrder(o);
+    return s + (c.displayValue || 0);
+  }, 0);
+  const hasRates = Object.keys(fxRates).length > 0;
 
   const addOrder = () => {
     if (!form.name.trim() || !limitPrice) return;
@@ -307,10 +336,12 @@ export function PendingOrders() {
     <div style={{ fontSize:10, color:T.text.tertiary, textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:700, marginBottom:4 }}>{children}</div>
   );
 
+  const CURR_SYMBOL = { HUF: "Ft", USD: "$", EUR: "€", GBP: "£" };
+
   return (
     <div style={glassCard(T, { padding:16 })}>
       {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: totalDisplay > 0 ? 8 : 14 }}>
         <div style={{ fontSize:11, color:T.text.secondary, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:700 }}>
           ⏳ Függőben lévő megbízások
           {orders.length > 0 && <span style={{ marginLeft:8, color:T.text.tertiary, fontWeight:400 }}>({orders.length})</span>}
@@ -325,7 +356,18 @@ export function PendingOrders() {
         </button>
       </div>
 
-      {/* Hozzáadás form */}
+      {/* Összesített érték konvertálva */}
+      {totalDisplay > 0 && (
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14, padding:"8px 12px", background:"rgba(253,214,138,0.06)", border:`1px solid rgba(253,214,138,0.2)`, borderRadius:T.radius.sm }}>
+          <span style={{ fontSize:12, color:T.text.secondary }}>Összesen ({displayCurrency})</span>
+          <div style={{ textAlign:"right" }}>
+            <div style={{ fontSize:15, fontWeight:700, color:T.accent.yellow, fontFamily:"'DM Mono',monospace" }}>
+              {CURR_SYMBOL[displayCurrency]}{fmtNum(totalDisplay, 2)}
+            </div>
+            {!hasRates && <div style={{ fontSize:10, color:T.text.tertiary }}>🔄 Frissítsd az árfolyamot</div>}
+          </div>
+        </div>
+      )}
       {showAdd && (
         <div style={{ background:T.bg.inset, border:`1px solid ${T.border.subtle}`, borderRadius:T.radius.md, padding:14, marginBottom:14, display:"flex", flexDirection:"column", gap:12 }}>
 
@@ -415,32 +457,52 @@ export function PendingOrders() {
           Nincs függőben lévő megbízás.<br/>
           <span style={{ fontSize:11 }}>pl. DFNS.UK Buy Limit @ 61.41 USD</span>
         </div>
-      ) : orders.map(o => (
-        <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
-          <span style={{ fontSize:10, fontWeight:800, background:(TYPE_COLOR[o.type]||"#94A3B8")+"20", color:TYPE_COLOR[o.type]||"#94A3B8", borderRadius:4, padding:"2px 6px", flexShrink:0 }}>
-            {o.type}
-          </span>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:13, fontWeight:600, color:T.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-              {o.name} {o.ticker && <span style={{ color:T.text.tertiary, fontSize:11 }}>· {o.ticker}</span>}
-            </div>
-            <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace", marginTop:2 }}>
-              {fmtNum(o.limitPrice, 2)} {o.currency}
-              {o.quantity > 0 && ` · ${fmtNum(o.quantity, 4)} db`}
-              {o.expiry && ` · ${o.expiry}-ig`}
-            </div>
-          </div>
-          {o.totalNative > 0 && (
-            <div style={{ textAlign:"right", flexShrink:0 }}>
-              <div style={{ fontSize:13, fontWeight:700, color:T.text.primary, fontFamily:"'DM Mono',monospace" }}>
-                {fmtNum(o.totalNative, 2)}
+      ) : orders.map(o => {
+        const conv = convertOrder(o);
+        const showNative = o.currency !== displayCurrency && conv.displayValue;
+        return (
+          <div key={o.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
+            <span style={{ fontSize:10, fontWeight:800, background:(TYPE_COLOR[o.type]||"#94A3B8")+"20", color:TYPE_COLOR[o.type]||"#94A3B8", borderRadius:4, padding:"2px 6px", flexShrink:0 }}>
+              {o.type}
+            </span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13, fontWeight:600, color:T.text.primary, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                {o.name} {o.ticker && <span style={{ color:T.text.tertiary, fontSize:11 }}>· {o.ticker}</span>}
               </div>
-              <div style={{ fontSize:10, color:T.text.tertiary }}>{o.currency}</div>
+              <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace", marginTop:2 }}>
+                {fmtNum(o.limitPrice, 2)} {o.currency}
+                {o.quantity > 0 && ` · ${fmtNum(o.quantity, 4)} db`}
+                {o.expiry && ` · ${o.expiry}-ig`}
+              </div>
             </div>
-          )}
-          <button onClick={() => removeOrder(o.id)} style={{ background:"none", border:"none", color:T.text.tertiary, cursor:"pointer", fontSize:16, padding:"0 4px", flexShrink:0 }}>✕</button>
-        </div>
-      ))}
+            {o.totalNative > 0 && (
+              <div style={{ textAlign:"right", flexShrink:0 }}>
+                {/* Konvertált érték */}
+                {conv.displayValue ? (
+                  <>
+                    <div style={{ fontSize:13, fontWeight:700, color:T.text.primary, fontFamily:"'DM Mono',monospace" }}>
+                      {CURR_SYMBOL[displayCurrency]}{fmtNum(conv.displayValue, 2)}
+                    </div>
+                    {showNative && (
+                      <div style={{ fontSize:10, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
+                        {fmtNum(o.totalNative, 2)} {o.currency}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize:13, fontWeight:700, color:T.text.primary, fontFamily:"'DM Mono',monospace" }}>
+                      {fmtNum(o.totalNative, 2)}
+                    </div>
+                    <div style={{ fontSize:10, color:T.text.tertiary }}>{o.currency}</div>
+                  </>
+                )}
+              </div>
+            )}
+            <button onClick={() => removeOrder(o.id)} style={{ background:"none", border:"none", color:T.text.tertiary, cursor:"pointer", fontSize:16, padding:"0 4px", flexShrink:0 }}>✕</button>
+          </div>
+        );
+      })}
     </div>
   );
 }

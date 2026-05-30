@@ -48,6 +48,10 @@ export default function App() {
   const [detailInv,       setDetailInv]       = useState(null);
   const [activeTab,       setActiveTab]       = useState("portfolio");
   const [displayCurrency, setDisplayCurrency] = useState("HUF");
+  const [fxRates,         setFxRates]         = useState(() => {
+    try { return JSON.parse(localStorage.getItem("investtrack_fx") || "{}"); }
+    catch { return {}; }
+  });
   const [showTxLog,       setShowTxLog]       = useState(false);
   const [showAI,          setShowAI]          = useState(false);
   const [featureModal,    setFeatureModal]    = useState(null);
@@ -114,7 +118,11 @@ export default function App() {
     setRefreshing(true);
     setRefreshProgress("Csatlakozás...");
     try {
-      const { results, errors } = await refreshAllPrices(investments, setRefreshProgress);
+      const { results, errors, fxRates: newFxRates } = await refreshAllPrices(investments, setRefreshProgress);
+      if (newFxRates && Object.keys(newFxRates).length > 0) {
+        setFxRates(newFxRates);
+        localStorage.setItem("investtrack_fx", JSON.stringify(newFxRates));
+      }
       if (!results.size) { showToast("❌ Minden lekérés sikertelen!", "error"); return; }
       setInvestments(prev => {
         const updated = prev.map(inv => {
@@ -426,7 +434,7 @@ export default function App() {
               ))}
             </div>
             <TopMovers investments={investments} />
-            <PendingOrders />
+            <PendingOrders fxRates={fxRates} displayCurrency={displayCurrency} />
             <CurrencyExposure investments={investments} />
             <BenchmarkChart investments={investments} />
             <RiskReturn investments={investments} />

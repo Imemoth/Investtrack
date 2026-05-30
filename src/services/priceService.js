@@ -97,5 +97,5 @@ export async function refreshAllPrices(investments, onProgress) {
     }
     if (i < withTicker.length - 1) await new Promise(r => setTimeout(r, 400));
   }
-  return { results, errors };
+  return { results, errors, fxRates };
 }
