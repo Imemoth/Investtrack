@@ -34,7 +34,25 @@ async function searchTickers(query) {
   return [];
 }
 
-// Ticker típus → InvestTrack kategória
+async function fetchQuoteDetails(symbol) {
+  const url = `https://query2.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`;
+  for (const proxy of PROXIES) {
+    try {
+      const res  = await fetch(proxy(url), { signal: AbortSignal.timeout(6000) });
+      if (!res.ok) throw new Error();
+      const text = await res.text();
+      if (text.trim().startsWith("<")) throw new Error();
+      const data = JSON.parse(text);
+      const meta = data?.chart?.result?.[0]?.meta;
+      if (!meta) throw new Error();
+      return {
+        price:    meta.regularMarketPrice || meta.previousClose || null,
+        currency: meta.currency || null,
+      };
+    } catch {}
+  }
+  return { price: null, currency: null };
+}
 function typeToCategory(type) {
   if (type === "ETF")    return "ETF";
   if (type === "MUTUALFUND") return "ETF";
@@ -47,11 +65,11 @@ function TickerSearch({ value, onSelect, inputStyle, labelStyle }) {
   const [query,    setQuery]    = useState(value || "");
   const [results,  setResults]  = useState([]);
   const [loading,  setLoading]  = useState(false);
+  const [fetching, setFetching] = useState(false); // ár lekérés folyamatban
   const [open,     setOpen]     = useState(false);
   const debounceRef = useRef(null);
   const wrapRef     = useRef(null);
 
-  // Külső kattintásra bezár
   useEffect(() => {
     const h = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", h);
@@ -72,14 +90,30 @@ function TickerSearch({ value, onSelect, inputStyle, labelStyle }) {
     }, 350);
   };
 
-  const handleSelect = (item) => {
+  const handleSelect = async (item) => {
     setQuery(item.symbol);
     setOpen(false);
     haptic("light");
-    onSelect(item);
+
+    // Először átadjuk az alapadatokat
+    onSelect({ ...item, price: item.price || null, loading: true });
+
+    // Aztán lekérjük a pontos árat és devizát
+    if (!item.price || !item.currency) {
+      setFetching(true);
+      const details = await fetchQuoteDetails(item.symbol);
+      setFetching(false);
+      onSelect({
+        ...item,
+        price:    details.price    || item.price,
+        currency: details.currency || item.currency || "USD",
+        loading:  false,
+      });
+    }
   };
 
   const TYPE_COLORS = { ETF:"#93C5FD", EQUITY:"#6EE7B7", CRYPTOCURRENCY:"#F9A8D4", FUTURE:"#FDE68A" };
+  const isSpinning  = loading || fetching;
 
   return (
     <div ref={wrapRef} style={{ position:"relative" }}>
@@ -97,7 +131,7 @@ function TickerSearch({ value, onSelect, inputStyle, labelStyle }) {
           autoCapitalize="characters"
           spellCheck={false}
         />
-        {loading && (
+        {isSpinning && (
           <div style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)", fontSize:12, animation:"spin 1s linear infinite", display:"inline-block" }}>⟳</div>
         )}
       </div>
@@ -179,12 +213,27 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
   const grid2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 };
 
   // Ticker kiválasztásakor automatikusan tölt
+  const [priceLoading, setPriceLoading] = useState(false);
+
   const handleTickerSelect = (item) => {
     set("ticker",   item.symbol);
     set("name",     item.name);
-    set("currency", item.currency || "HUF");
     set("category", typeToCategory(item.type));
-    if (item.price) set("currentPrice", String(item.price));
+    // Ha van deviza a search találatból → beállítjuk, különben várunk a details-re
+    if (item.currency && item.currency !== "USD" || item.type === "ETF") {
+      set("currency", item.currency || "USD");
+    }
+    if (item.price) {
+      set("currentPrice", String(item.price));
+    }
+    // Ha a details-szel jön frissítés
+    if (!item.loading) {
+      if (item.currency) set("currency", item.currency);
+      if (item.price)    set("currentPrice", String(Math.round(item.price * 100) / 100));
+      setPriceLoading(false);
+    } else {
+      setPriceLoading(true);
+    }
   };
 
   const handleSave = () => {
@@ -245,7 +294,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
 
       <div style={grid2}>
         <div>
-          <label style={labelStyle}>Jelenlegi ár</label>
+          <label style={labelStyle}>Jelenlegi ár {priceLoading && <span style={{ color:T.accent.green, marginLeft:4, fontSize:10 }}>⟳ töltés...</span>}</label>
           <input style={inputStyle} type="number" value={form.currentPrice || ""} onChange={e => set("currentPrice", e.target.value)} placeholder="0" />
         </div>
         <div>
