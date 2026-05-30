@@ -57,7 +57,9 @@ export function TopMovers({ investments }) {
     const best  = list[0];
     const color = isWinner ? T.accent.green : T.accent.red;
     const icon  = isWinner ? "🏆" : "📉";
-    const bestPortPct = best && totalValue > 0 ? (best.value / totalValue) * 100 : 0;
+    // Top 3 összesített érték és portfólió %
+    const listTotal    = list.reduce((s, i) => s + i.value, 0);
+    const listPortPct  = totalValue > 0 ? (listTotal / totalValue) * 100 : 0;
     return (
       <div style={glassCard(T, { padding:0, overflow:"hidden" })}>
         <button onClick={toggle} style={{
@@ -72,13 +74,13 @@ export function TopMovers({ investments }) {
             </span>
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-            {!isOpen && best && (
+            {!isOpen && (
               <>
-                <span style={{ fontSize:12, color, fontFamily:"'DM Mono',monospace", fontWeight:700 }}>
-                  {isWinner?"+":""}{fmtNum(best.pct, 2)}%
+                <span style={{ fontSize:13, fontWeight:700, color, fontFamily:"'DM Mono',monospace" }}>
+                  {fmtNum(listTotal, 0)} Ft
                 </span>
                 <span style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
-                  {best.ticker||best.name} · {fmtNum(bestPortPct,1)}% port.
+                  {fmtNum(listPortPct, 1)}%
                 </span>
               </>
             )}
