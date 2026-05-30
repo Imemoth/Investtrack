@@ -322,10 +322,10 @@ export function savePending(p) { localStorage.setItem(PENDING_KEY, JSON.stringif
 const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", currency:"USD", quantity:"", hufValue:"", expiry:"", notes:"" };
 const TYPE_COLOR  = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
-export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
+export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", onSaveOrder, onDeleteOrder }) {
   const [orders,    setOrders]    = useState(loadPending);
   const [showAdd,   setShowAdd]   = useState(false);
-  const [expanded,  setExpanded]  = useState(null); // expanded order id
+  const [expanded,  setExpanded]  = useState(null);
   const [form,      setForm]      = useState(EMPTY_ORDER);
   const f = (k, v) => setForm(p => ({...p, [k]: v}));
 
@@ -380,12 +380,14 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF" }) {
     };
     const next = [...orders, order];
     setOrders(next); savePending(next);
+    onSaveOrder?.(order);
     setForm(EMPTY_ORDER); setShowAdd(false);
   };
 
   const removeOrder = id => {
     const next = orders.filter(o => o.id !== id);
     setOrders(next); savePending(next);
+    onDeleteOrder?.(id);
   };
 
   const inputS = {

@@ -98,19 +98,6 @@ export function Header({
           </div>
         </div>
 
-        {/* Refresh */}
-        <button title="Árfolyam frissítése" onClick={() => { onRefresh(); haptic("medium"); }} disabled={refreshing} style={{
-          background: "none", border: `1px solid ${T.border.subtle}`, borderRadius: T.radius.md,
-          padding: "8px 9px", cursor: refreshing ? "not-allowed" : "pointer",
-          opacity: refreshing ? 0.5 : 1, color: T.text.secondary, flexShrink: 0,
-          transition: T.transition.fast,
-        }}>
-          <svg width="14" height="14" fill="none" viewBox="0 0 16 16" style={{ animation: refreshing ? "spin 1s linear infinite" : "none", display: "block" }}>
-            <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/>
-            <path d="M8 1v3.5L10.5 2 8 1z" fill="currentColor"/>
-          </svg>
-        </button>
-
         {/* + Új */}
         <button onClick={() => { onNewInvestment(); haptic("medium"); }} style={{
           background: T.gradient.primary, border: "none", borderRadius: T.radius.md,

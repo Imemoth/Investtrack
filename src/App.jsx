@@ -624,7 +624,12 @@ export default function App() {
               ))}
             </div>
             <TopMovers investments={investments} />
-            <PendingOrders fxRates={fxRates} displayCurrency={displayCurrency} />
+            <PendingOrders
+              fxRates={fxRates}
+              displayCurrency={displayCurrency}
+              onSaveOrder={order => user && upsertPendingOrder(order).catch(console.warn)}
+              onDeleteOrder={id => user && deletePendingOrder(id).catch(console.warn)}
+            />
             <CurrencyExposure investments={investments} />
             <BenchmarkChart investments={investments} />
             <RiskReturn investments={investments} />
