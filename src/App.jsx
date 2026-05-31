@@ -72,6 +72,7 @@ export default function App() {
   const [showAI,          setShowAI]          = useState(false);
   const [featureModal,    setFeatureModal]    = useState(null);
   const [confirmClear,    setConfirmClear]    = useState(false);
+  const [importConfirm,   setImportConfirm]   = useState(null); // { type:"csv"|"xtb", parsed, closed?, msg }
   const [isDark,          setIsDark]          = useState(() => localStorage.getItem("investtrack_theme") !== "light");
   const [lastRefreshed,   setLastRefreshed]   = useState(() => {
     const saved = localStorage.getItem("investtrack_last_refresh");
@@ -258,6 +259,16 @@ export default function App() {
   };
 
   const handleClearPortfolio = async () => {
+    setConfirmClear(false);
+    haptic("heavy");
+    if (user) {
+      try {
+        await Promise.all([deleteAllInvestments(), deleteAllClosedPositions()]);
+      } catch(e) {
+        showToast("Törlési hiba: " + e.message, "error");
+        return;
+      }
+    }
     setInvestments([]);
     setClosedPositions([]);
     localStorage.removeItem("investtrack_v2");
@@ -265,13 +276,6 @@ export default function App() {
     localStorage.removeItem("investtrack_closed");
     localStorage.removeItem("investtrack_last_refresh");
     setLastRefreshed(null);
-    setConfirmClear(false);
-    haptic("heavy");
-    if (user) {
-      try {
-        await Promise.all([deleteAllInvestments(), deleteAllClosedPositions()]);
-      } catch(e) { console.warn("Törlés hiba:", e.message); }
-    }
     showToast("Portfólió törölve!", "info");
   };
 
@@ -321,24 +325,64 @@ export default function App() {
       const parsed = parseCSV(importText);
       if (!parsed.length) throw new Error("Nem találtam adatsort");
       if (investments.length > 0) {
-        const choice = window.confirm(
-          `${parsed.length} pozíciót találtam.\n\n` +
-          `OK = Csere (jelenlegi ${investments.length} pozíció törlődik)\n` +
-          `Mégse = Hozzáadás a meglévőkhöz`
-        );
-        if (choice) {
-          setInvestments(parsed);
-          localStorage.removeItem("investtrack_last_refresh");
-          setLastRefreshed(null);
-        } else {
-          setInvestments(prev => [...prev, ...parsed]);
-        }
-      } else {
-        setInvestments(parsed);
+        setImportConfirm({
+          type: "csv", parsed,
+          msg: `${parsed.length} pozíciót találtam. A meglévő ${investments.length} pozíciót cseréljük, vagy hozzáadjuk?`,
+        });
+        return;
       }
+      setInvestments(parsed);
       setModal(null); setImportText("");
       showToast(`${parsed.length} befektetés importálva!`);
     } catch (e) { showToast("Import hiba: " + e.message, "error"); }
+  };
+
+  const handleImportReplace = async () => {
+    const { type, parsed, closed } = importConfirm;
+    setImportConfirm(null);
+    if (type === "csv") {
+      setInvestments(parsed);
+      localStorage.removeItem("investtrack_last_refresh");
+      setLastRefreshed(null);
+      setModal(null); setImportText("");
+      showToast(`${parsed.length} befektetés importálva!`);
+    } else {
+      if (user) {
+        try {
+          await deleteAllInvestments();
+          await deleteAllClosedPositions();
+          await upsertInvestments(parsed);
+          await upsertClosedPositions(closed);
+        } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
+      }
+      setInvestments(parsed);
+      setClosedPositions(closed);
+      localStorage.removeItem("investtrack_last_refresh");
+      setLastRefreshed(null);
+      setModal(null);
+      showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció`);
+    }
+  };
+
+  const handleImportMerge = async () => {
+    const { type, parsed, closed } = importConfirm;
+    setImportConfirm(null);
+    if (type === "csv") {
+      setInvestments(prev => [...prev, ...parsed]);
+      setModal(null); setImportText("");
+      showToast(`${parsed.length} befektetés hozzáadva!`);
+    } else {
+      setInvestments(prev => [...prev, ...parsed]);
+      setClosedPositions(prev => [...prev, ...closed]);
+      if (user) {
+        try {
+          await upsertInvestments(parsed);
+          await upsertClosedPositions(closed);
+        } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
+      }
+      setModal(null);
+      showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció hozzáadva`);
+    }
   };
 
   const handleFileImport = e => {
@@ -355,33 +399,19 @@ export default function App() {
           const closed = result.closed;
           if (!parsed.length && !closed.length) throw new Error("Nem találtam pozíciókat");
           if (investments.length > 0) {
-            const choice = window.confirm(
-              `${parsed.length} nyitott + ${closed.length} lezárt pozíció.\n\n` +
-              `OK = Csere (jelenlegi adatok törlődnek)\n` +
-              `Mégse = Hozzáadás`
-            );
-            if (choice) {
-              setInvestments(parsed);
-              setClosedPositions(closed);
-              localStorage.removeItem("investtrack_last_refresh");
-              setLastRefreshed(null);
-              if (user) {
-                await deleteAllInvestments();
-                await deleteAllClosedPositions();
-                await upsertInvestments(parsed);
-                await upsertClosedPositions(closed);
-              }
-            } else {
-              setInvestments(prev => [...prev, ...parsed]);
-              setClosedPositions(prev => [...prev, ...closed]);
-              if (user) {
-                await upsertInvestments(parsed);
-                await upsertClosedPositions(closed);
-              }
-            }
-          } else {
-            setInvestments(parsed);
-            setClosedPositions(closed);
+            setImportConfirm({
+              type: "xtb", parsed, closed,
+              msg: `${parsed.length} nyitott + ${closed.length} lezárt pozíció. A meglévő adatokat cseréljük, vagy hozzáadjuk?`,
+            });
+            return;
+          }
+          setInvestments(parsed);
+          setClosedPositions(closed);
+          if (user) {
+            try {
+              await upsertInvestments(parsed);
+              await upsertClosedPositions(closed);
+            } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
           }
           setModal(null);
           showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció`);
@@ -590,6 +620,9 @@ export default function App() {
         detailInv={detailInv}       setDetailInv={setDetailInv}
         confirmDelete={confirmDelete} setConfirmDelete={setConfirmDelete}
         confirmClear={confirmClear}  setConfirmClear={setConfirmClear}
+        importConfirm={importConfirm} setImportConfirm={setImportConfirm}
+        handleImportReplace={handleImportReplace}
+        handleImportMerge={handleImportMerge}
         sellInv={sellInv}           setSellInv={setSellInv}
         showTxLog={showTxLog}       setShowTxLog={setShowTxLog}
         showAI={showAI}             setShowAI={setShowAI}

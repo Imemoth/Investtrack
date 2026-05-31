@@ -17,6 +17,8 @@ export function AppModals({
   detailInv, setDetailInv,
   confirmDelete, setConfirmDelete,
   confirmClear, setConfirmClear,
+  importConfirm, setImportConfirm,
+  handleImportReplace, handleImportMerge,
   sellInv, setSellInv,
   showTxLog, setShowTxLog,
   showAI, setShowAI,
@@ -119,6 +121,25 @@ export function AppModals({
           onClose={() => setDetailInv(null)}
           onEdit={() => { setEditing(detailInv); setDetailInv(null); setModal("edit"); }}
         />
+      )}
+
+      {/* Import megerősítése (Csere vs Hozzáadás) */}
+      {importConfirm && (
+        <Modal title="Import megerősítése" onClose={() => setImportConfirm(null)}>
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+            <div style={{ fontSize:14, color:theme.text.secondary, lineHeight:1.6 }}>
+              {importConfirm.msg}
+            </div>
+            <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+              <button style={{ background:"none", border:`1px solid ${theme.border.default}`, borderRadius:theme.radius.md, padding:"9px 14px", color:theme.text.secondary, cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"inherit" }}
+                onClick={() => setImportConfirm(null)}>Mégsem</button>
+              <button style={{ background:"none", border:`1px solid ${theme.border.default}`, borderRadius:theme.radius.md, padding:"9px 14px", color:theme.text.secondary, cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"inherit" }}
+                onClick={handleImportMerge}>Hozzáadás</button>
+              <button style={{ background:"rgba(252,165,165,0.15)", border:"1px solid rgba(252,165,165,0.4)", borderRadius:theme.radius.md, padding:"9px 14px", color:theme.accent.red, cursor:"pointer", fontSize:13, fontWeight:700, fontFamily:"inherit" }}
+                onClick={handleImportReplace}>Csere (régi törlődik)</button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Portfólió törlése */}

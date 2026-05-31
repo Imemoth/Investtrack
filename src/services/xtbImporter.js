@@ -115,7 +115,6 @@ export function parseXTBFile(arrayBuffer) {
 
       if (!ticker || !instrument) continue;
       const pnlVal  = parseFloat(String(pnl).replace(",", ".")) || 0;
-      if (isNaN(pnlVal) && !ticker) continue;
 
       // Realizált P&L hozzáadása a nyitott pozícióhoz ha van
       if (openPositions.has(ticker)) {

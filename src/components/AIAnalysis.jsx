@@ -6,13 +6,13 @@ export function AIAnalysis({ investments, onClose }) {
   const [analysis, setAnalysis] = useState(null);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState(null);
-  const [apiKey,   setApiKey]   = useState(() => localStorage.getItem("investtrack_apikey") || "");
+  const [apiKey,   setApiKey]   = useState(() => sessionStorage.getItem("investtrack_apikey") || "");
   const [showKey,  setShowKey]  = useState(false);
 
   const saveKey = k => {
     setApiKey(k);
-    if (k) localStorage.setItem("investtrack_apikey", k);
-    else localStorage.removeItem("investtrack_apikey");
+    if (k) sessionStorage.setItem("investtrack_apikey", k);
+    else sessionStorage.removeItem("investtrack_apikey");
   };
 
   const runAnalysis = async () => {
@@ -21,8 +21,8 @@ export function AIAnalysis({ investments, onClose }) {
 
     // ── portfolioContext: ez cache-elődik a szerveren ──
     const portfolioContext = [
-      `Összérték: ${fmtNum(investments.reduce((s,i) => s + i.currentPrice * i.quantity, 0), 0)} HUF`,
-      `Befektetett: ${fmtNum(investments.reduce((s,i) => s + i.buyPrice * i.quantity, 0), 0)} HUF`,
+      `Összérték: ${fmtNum(investments.reduce((s,i) => s + calcPnL(i).value, 0), 0)} HUF`,
+      `Befektetett: ${fmtNum(investments.reduce((s,i) => s + calcPnL(i).cost, 0), 0)} HUF`,
       `Pozíciók (${investments.length} db):`,
       ...investments.map(inv => {
         const { pct, value } = calcPnL(inv);
