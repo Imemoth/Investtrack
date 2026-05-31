@@ -1,6 +1,7 @@
 // components/DashboardTab.jsx
 import { fmtNum, fmtCurrency } from "../utils";
 import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn, PendingOrders } from "./DashboardWidgets";
+import { PortfolioHistoryChart } from "./PortfolioHistoryChart";
 
 export function DashboardTab({ theme, investments, stats, fxRates, displayCurrency, initialOrders, onSaveOrder, onDeleteOrder }) {
   const cards = [
@@ -41,6 +42,7 @@ export function DashboardTab({ theme, investments, stats, fxRates, displayCurren
         onSaveOrder={onSaveOrder}
         onDeleteOrder={onDeleteOrder}
       />
+      <PortfolioHistoryChart theme={theme} />
       <CurrencyExposure investments={investments} />
       <BenchmarkChart investments={investments} />
       <RiskReturn investments={investments} />

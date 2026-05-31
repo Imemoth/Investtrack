@@ -224,24 +224,28 @@ export default function App() {
         localStorage.setItem("investtrack_fx", JSON.stringify(newFxRates));
       }
       if (!results.size) { showToast("❌ Minden lekérés sikertelen!", "error"); return; }
-      setInvestments(prev => {
-        const updated = prev.map(inv => {
-          const hit = results.get(inv.ticker?.toUpperCase());
-          if (!hit) return inv;
-          const newPrice = inv.currency === "HUF" ? hit.hufPrice : hit.nativePrice;
-          return { ...inv, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency };
-        });
-        // Célár riasztás
-        updated.forEach(inv => {
-          if (!inv.targetPrice || !inv.currentPrice) return;
-          const target   = +inv.targetPrice;
-          const prevInv  = prev.find(p => p.id === inv.id);
-          const wasBelow = (prevInv?.currentPrice ?? 0) < target;
-          const nowAbove = inv.currentPrice >= target;
-          if (wasBelow && nowAbove) showToast(`🎯 ${inv.name} elérte a célárat!`, "success");
-        });
-        return updated;
+      const updated = investments.map(inv => {
+        const hit = results.get(inv.ticker?.toUpperCase());
+        if (!hit) return inv;
+        const newPrice = inv.currency === "HUF" ? hit.hufPrice : hit.nativePrice;
+        return { ...inv, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency };
       });
+      // Célár riasztás
+      updated.forEach(inv => {
+        if (!inv.targetPrice || !inv.currentPrice) return;
+        const target   = +inv.targetPrice;
+        const prevInv  = investments.find(p => p.id === inv.id);
+        const wasBelow = (prevInv?.currentPrice ?? 0) < target;
+        const nowAbove = inv.currentPrice >= target;
+        if (wasBelow && nowAbove) showToast(`🎯 ${inv.name} elérte a célárat!`, "success");
+      });
+      setInvestments(updated);
+      // Portfólió snapshot mentése
+      if (user) {
+        const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
+        const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
+        savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+      }
       const ok = results.size, fail = errors.length;
       const now = new Date();
       setLastRefreshed(now);
