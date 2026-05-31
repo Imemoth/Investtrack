@@ -27,6 +27,8 @@ import { FeatureModal } from "./components/FeatureModals";
 import { SellModal } from "./components/SellModal";
 import { InvRow } from "./components/InvRow";
 import { PortfolioTab } from "./components/PortfolioTab";
+import { DashboardTab } from "./components/DashboardTab";
+import { AppModals } from "./components/AppModals";
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -543,39 +545,15 @@ export default function App() {
 
         {/* ── DASHBOARD TAB ── */}
         {activeTab === "dashboard" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {/* Stat cards – 2x2 */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {[
-                { label: "Portfólió értéke",
-                  val: fmtCurrency(stats.totalValue + stats.pendingTotal, "HUF"),
-                  sub: `${investments.length} pozíció · ${stats.pendingTotal > 0 ? `+${fmtNum(stats.pendingTotal,0)} Ft függőben` : "nincs függő"}`,
-                  color: theme.text.primary },
-                { label: "Befektetett tőke",    val: fmtCurrency(stats.totalCost,  "HUF"), sub: "Összes vételár",                color: theme.text.secondary },
-                { label: "Nyereség / Veszteség",val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
-                                                 sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,
-                                                 color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red },
-                { label: "💰 Éves osztalék",    val: stats.totalDividend > 0 ? fmtCurrency(stats.totalDividend, "HUF") : "—",
-                                                 sub: "becsült bruttó",  color: theme.accent.yellow },
-              ].map((s, i) => (
-                <div key={i} style={S.statCard}>
-                  <div style={{ fontSize: 10, color: theme.text.tertiary, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700, marginBottom: 6 }}>{s.label}</div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: s.color, letterSpacing: "-0.02em", lineHeight: 1.2, wordBreak: "break-all" }}>{s.val}</div>
-                  <div style={{ fontSize: 11, color: theme.text.tertiary, marginTop: 4 }}>{s.sub}</div>
-                </div>
-              ))}
-            </div>
-            <TopMovers investments={investments} />
-            <PendingOrders
-              fxRates={fxRates}
-              displayCurrency={displayCurrency}
-              onSaveOrder={order => user && upsertPendingOrder(order).catch(console.warn)}
-              onDeleteOrder={id => user && deletePendingOrder(id).catch(console.warn)}
-            />
-            <CurrencyExposure investments={investments} />
-            <BenchmarkChart investments={investments} />
-            <RiskReturn investments={investments} />
-          </div>
+          <DashboardTab
+            theme={theme}
+            investments={investments}
+            stats={stats}
+            fxRates={fxRates}
+            displayCurrency={displayCurrency}
+            onSaveOrder={order => user && upsertPendingOrder(order).catch(console.warn)}
+            onDeleteOrder={id => user && deletePendingOrder(id).catch(console.warn)}
+          />
         )}
 
         {/* ── PORTFOLIO TAB ── */}
@@ -603,121 +581,33 @@ export default function App() {
       </main>
 
       {/* ── Modals ── */}
-      {(modal === "add" || modal === "edit") && (
-        <Modal title={modal === "add" ? "Új befektetés" : "Befektetés szerkesztése"} onClose={() => { setModal(null); setEditing(null); }}>
-          <InvestmentForm initial={editing} onSave={saveInvestment} onCancel={() => { setModal(null); setEditing(null); }} />
-        </Modal>
-      )}
-
-      {modal === "import" && (
-        <Modal title="Import" onClose={() => { setModal(null); setImportText(""); }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {/* XTB közvetlen import */}
-            <div style={{ ...glassCard(theme, { padding: 16 }), background: "rgba(110,231,183,0.06)", border: `1px solid rgba(110,231,183,0.25)` }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: theme.accent.green, marginBottom: 6 }}>🏦 XTB közvetlen import (ajánlott)</div>
-              <div style={{ fontSize: 12, color: theme.text.secondary, marginBottom: 10, lineHeight: 1.6 }}>
-                Töltsd le az XTB XLSX exportot — automatikusan felismeri a pozíciókat, lotokat és realizált P&L-t.
-              </div>
-              <div style={{ fontSize: 11, color: theme.text.tertiary, marginBottom: 12, background: theme.bg.inset, borderRadius: theme.radius.sm, padding: "8px 10px", lineHeight: 1.7 }}>
-                xStation5 → <strong style={{ color: theme.text.secondary }}>Account History</strong> → Export → <strong style={{ color: theme.text.secondary }}>Full Report</strong> → <strong style={{ color: theme.text.secondary }}>Excel</strong>
-              </div>
-              <label style={{ ...S.btn("primary"), display: "inline-flex", cursor: "pointer", justifyContent: "center" }}>
-                📥 XTB XLSX feltöltése
-                <input type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={handleFileImport} />
-              </label>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ flex: 1, height: 1, background: theme.border.subtle }} />
-              <span style={{ fontSize: 11, color: theme.text.tertiary }}>vagy CSV manuálisan</span>
-              <div style={{ flex: 1, height: 1, background: theme.border.subtle }} />
-            </div>
-            <label style={{ ...S.btn("ghost"), display: "inline-flex", cursor: "pointer", justifyContent: "center" }}>
-              📁 CSV feltöltése
-              <input type="file" accept=".csv,.txt" style={{ display: "none" }} onChange={handleFileImport} />
-            </label>
-            <textarea
-              style={{ width: "100%", background: theme.bg.inset, border: `1px solid ${theme.border.default}`, borderRadius: theme.radius.md, padding: "10px 12px", color: theme.text.primary, fontSize: 12, fontFamily: "'DM Mono', monospace", minHeight: 80, resize: "vertical", boxSizing: "border-box", outline: "none" }}
-              placeholder={"Név,Ticker,Kategória,Vétel ár,Darab,Jelenlegi ár,Deviza,Vétel dátum,Megjegyzés"}
-              value={importText} onChange={e => setImportText(e.target.value)}
-            />
-            <div style={{ background: theme.bg.inset, border: `1px solid ${theme.border.subtle}`, borderRadius: theme.radius.md, padding: "12px 14px", fontSize: 12, color: theme.text.secondary, lineHeight: 1.7 }}>
-              <div style={{ fontWeight: 700, color: theme.text.primary, marginBottom: 4 }}>📋 Oszlopsorrend:</div>
-              <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: theme.accent.green, marginBottom: 10 }}>
-                Név · Ticker · Kategória · Vétel ár · Darab · Jelenlegi ár · Deviza · Vétel dátum · Megjegyzés
-              </div>
-              <div style={{ padding: "8px 10px", background: "rgba(110,231,183,0.05)", border: `1px solid rgba(110,231,183,0.18)`, borderRadius: theme.radius.sm }}>
-                <div style={{ fontWeight: 700, color: theme.accent.green, marginBottom: 4 }}>💡 Több vásárlás = ismételt sor ugyanazzal a Tickerrel:</div>
-                <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 10, color: theme.text.tertiary, whiteSpace: "pre", lineHeight: 1.8 }}>{
-`AMD,AMD,Részvény,180,0.05,0,HUF,2024-01-10,1. vétel
-AMD,AMD,Részvény,210,0.03,0,HUF,2024-06-15,2. vétel`}</div>
-                <div style={{ fontSize: 11, color: theme.text.tertiary, marginTop: 6 }}>→ 1 pozíció, 2 lot, automatikus átlagár</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-              <button style={S.btn("ghost")} onClick={() => { setModal(null); setImportText(""); }}>Mégsem</button>
-              <button style={{ ...S.btn("primary"), opacity: importText.trim() ? 1 : 0.5 }} onClick={handleImport} disabled={!importText.trim()}>Importálás</button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {confirmDelete && (
-        <Modal title="Törlés megerősítése" onClose={() => setConfirmDelete(null)}>
-          <div style={{ fontSize: 14, color: "#8B949E", marginBottom: 20 }}>
-            Biztosan törlöd a <strong style={{ color: "#E6EDF3" }}>{confirmDelete.name}</strong> pozíciót?
-          </div>
-          <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
-            <button style={S.btn("ghost")} onClick={() => setConfirmDelete(null)}>Mégsem</button>
-            <button style={{ ...S.btn("ghost"), color: "#FCA5A5", borderColor: "#FCA5A5" }} onClick={() => doDelete(confirmDelete.id)}>Törlés</button>
-          </div>
-        </Modal>
-      )}
-
-      {detailInv && (
-        <DetailModal
-          inv={detailInv}
-          closedPositions={closedPositions.filter(c => c.xtbTicker === detailInv.xtbTicker || c.ticker === detailInv.ticker)}
-          onClose={() => setDetailInv(null)}
-          onEdit={() => { setEditing(detailInv); setDetailInv(null); setModal("edit"); }}
-        />
-      )}
-
-      {confirmClear && (
-        <Modal title="⚠️ Portfólió törlése" onClose={() => setConfirmClear(false)}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.25)", borderRadius: theme.radius.md, padding: 16, fontSize: 13, color: theme.text.secondary, lineHeight: 1.7 }}>
-              <div style={{ fontWeight: 700, color: theme.accent.red, marginBottom: 8 }}>Ez a művelet nem visszavonható!</div>
-              Törlöd az összes <strong style={{ color: theme.text.primary }}>{investments.length} pozíciót</strong> és az árfolyam historikát. Utána importálhatod az XTB XLSX exportot.
-            </div>
-            <div style={{ fontSize: 12, color: theme.text.tertiary }}>
-              💡 Tipp: előbb exportáld a jelenlegi adatokat (CSV Export), hogy meglegyen biztonsági másolat.
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button style={S.btn("ghost")} onClick={() => setConfirmClear(false)}>Mégsem</button>
-              <button onClick={handleClearPortfolio} style={{ background: "rgba(252,165,165,0.15)", border: "1px solid rgba(252,165,165,0.4)", borderRadius: theme.radius.md, padding: "10px 20px", color: theme.accent.red, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit" }}>
-                🗑️ Portfólió törlése
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {sellInv && <SellModal inv={sellInv} onSell={handleSell} onClose={() => setSellInv(null)} />}
-
-      {showTxLog && <TransactionLog onClose={() => setShowTxLog(false)} />}
-      {showAI    && <AIAnalysis investments={investments} onClose={() => setShowAI(false)} />}
-      {showLog   && <LogModal onClose={() => setShowLog(false)} />}
-      {featureModal && (
-        <FeatureModal
-          feature={featureModal}
-          investments={investments}
-          onClose={() => setFeatureModal(null)}
-          onSwitchPortfolio={(invs) => { setInvestments(invs); showToast("Portfólió betöltve!"); }}
-        />
-      )}
-
-      <Toast toast={toast} />
-
+      <AppModals
+        theme={theme}
+        investments={investments}
+        closedPositions={closedPositions}
+        modal={modal}               setModal={setModal}
+        editing={editing}           setEditing={setEditing}
+        detailInv={detailInv}       setDetailInv={setDetailInv}
+        confirmDelete={confirmDelete} setConfirmDelete={setConfirmDelete}
+        confirmClear={confirmClear}  setConfirmClear={setConfirmClear}
+        sellInv={sellInv}           setSellInv={setSellInv}
+        showTxLog={showTxLog}       setShowTxLog={setShowTxLog}
+        showAI={showAI}             setShowAI={setShowAI}
+        showLog={showLog}           setShowLog={setShowLog}
+        featureModal={featureModal}  setFeatureModal={setFeatureModal}
+        toast={toast}
+        importText={importText}     setImportText={setImportText}
+        saveInvestment={saveInvestment}
+        handleSell={handleSell}
+        handleImport={handleImport}
+        handleFileImport={handleFileImport}
+        handleClearPortfolio={handleClearPortfolio}
+        doDelete={doDelete}
+        setInvestments={setInvestments}
+        showToast={showToast}
+        btnPrimary={S.btn("primary")}
+        btnGhost={S.btn("ghost")}
+      />
       <style>{`
         ${KEYFRAMES}
         *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
