@@ -3,8 +3,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_URL  = "https://mvuavscjumcsxwntfegi.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dWF2c2NqdW1jc3h3bnRmZWdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxNjgyMDEsImV4cCI6MjA5NTc0NDIwMX0.ks1sShaisxeO_cUz7aubBdwFHkAHF5UOoqnUnA1t7hk";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
