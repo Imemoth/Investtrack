@@ -194,6 +194,16 @@ export default function App() {
         setPendingOrders(pending);
         setDbReady(true);
         setIsBooting(false);
+        // Napi egyszer automatikus snapshot mentés app betöltéskor
+        const today = new Date().toISOString().slice(0, 10);
+        const lastSnapDate = localStorage.getItem("investtrack_last_snapshot_date");
+        const migratedInvs = migrateAll(invs);
+        if (lastSnapDate !== today && migratedInvs.some(i => (i.currentPrice ?? 0) > 0)) {
+          const snapValue = migratedInvs.reduce((s, i) => s + calcPnL(i).value, 0);
+          const snapCost  = migratedInvs.reduce((s, i) => s + calcPnL(i).cost, 0);
+          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+          localStorage.setItem("investtrack_last_snapshot_date", today);
+        }
       } catch (err) {
         showToast("Adatbetöltés hiba: " + err.message, "error");
         setIsBooting(false); setDbReady(true);
