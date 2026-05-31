@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
 import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll } from "./utils";
-import { refreshAllPrices, fetchYahooPrice } from "./services/priceService";
+import { refreshAllPrices } from "./services/priceService";
 import { parseXTBFile } from "./services/xtbImporter";
 import {
   supabase, onAuthStateChange, signOut,
@@ -274,24 +274,24 @@ export default function App() {
     if (refreshingId || !inv.ticker?.trim()) return;
     setRefreshingId(inv.id);
     try {
-      const data = await fetchYahooPrice(inv.ticker);
-      let finalPrice = data.price;
-      if (inv.currency === "HUF" && data.currency && data.currency !== "HUF") {
-        const rate = fxRates[data.currency] || 1;
-        finalPrice = data.price * rate;
+      const { results, fxRates: newFxRates } = await refreshAllPrices([inv], null);
+      if (newFxRates && Object.keys(newFxRates).length > 0) {
+        setFxRates(newFxRates);
+        localStorage.setItem("investtrack_fx", JSON.stringify(newFxRates));
       }
-      setInvestments(prev => {
-        const updated = prev.map(i => i.id === inv.id
-          ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: new Date().toISOString() }
-          : i
-        );
-        if (user) {
-          const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
-          const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
-          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
-        }
-        return updated;
-      });
+      const hit = results.get(inv.ticker.toUpperCase());
+      if (!hit) { showToast(`❌ ${inv.ticker}: nem sikerült lekérni`, "error"); return; }
+      const newPrice = inv.currency === "HUF" ? hit.hufPrice : hit.nativePrice;
+      const updated = investments.map(i => i.id === inv.id
+        ? { ...i, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency, _refreshedAt: new Date().toISOString() }
+        : i
+      );
+      setInvestments(updated);
+      if (user) {
+        const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
+        const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
+        savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+      }
       showToast(`✓ ${inv.ticker} frissítve!`, "success");
     } catch (e) {
       showToast(`❌ ${inv.ticker}: ${e.message}`, "error");
