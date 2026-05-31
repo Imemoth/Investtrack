@@ -272,26 +272,30 @@ export default function App() {
 
   const handleRefreshSingle = async (inv) => {
     if (refreshingId || !inv.ticker?.trim()) return;
+    // Ha HUF-os részvény és nincs még érvényes cached FX rate, teljes frissítés kell
+    const needsFx = inv.currency === "HUF";
+    const hasCachedFx = needsFx ? Object.values(fxRates).some(r => r > 1) : true;
+    if (!hasCachedFx) {
+      showToast("Először végezz teljes árfolyamfrissítést a devizaárfolyamokhoz!", "info");
+      return;
+    }
     setRefreshingId(inv.id);
     try {
       const data = await fetchYahooPrice(inv.ticker);
       let finalPrice = data.price;
-      if (inv.currency === "HUF" && data.currency && data.currency !== "HUF") {
-        const rate = fxRates[data.currency] || 1;
-        finalPrice = data.price * rate;
+      if (needsFx && data.currency && data.currency !== "HUF") {
+        finalPrice = data.price * (fxRates[data.currency] || 1);
       }
-      setInvestments(prev => {
-        const updated = prev.map(i => i.id === inv.id
-          ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: new Date().toISOString() }
-          : i
-        );
-        if (user) {
-          const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
-          const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
-          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
-        }
-        return updated;
-      });
+      const updated = investments.map(i => i.id === inv.id
+        ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: new Date().toISOString() }
+        : i
+      );
+      setInvestments(updated);
+      if (user) {
+        const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
+        const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
+        savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+      }
       showToast(`✓ ${inv.ticker} frissítve!`, "success");
     } catch (e) {
       showToast(`❌ ${inv.ticker}: ${e.message}`, "error");
