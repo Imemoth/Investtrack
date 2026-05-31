@@ -279,14 +279,17 @@ export async function savePortfolioSnapshot(totalValue, totalCost, totalPnl) {
     .from("portfolio_snapshots")
     .upsert({ user_id: userId, date: today, total_value: totalValue, total_cost: totalCost, total_pnl: totalPnl },
              { onConflict: "user_id,date" });
-  if (error) console.warn("Snapshot hiba:", error.message);
+  if (error) console.error("Snapshot hiba:", error.message, error.code);
 }
 
 export async function fetchPortfolioHistory(days = 90) {
+  const userId = await getUserId();
+  if (!userId) return [];
   const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("portfolio_snapshots")
     .select("date, total_value, total_cost, total_pnl")
+    .eq("user_id", userId)
     .gte("date", from)
     .order("date", { ascending: true });
   if (error) throw error;
