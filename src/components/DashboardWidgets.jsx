@@ -3,6 +3,7 @@ import { calcPnL, fmtNum } from "../utils";
 import { CATEGORY_COLORS, POSITION_PALETTE } from "../constants";
 import { fetchOHLCV } from "./StockChart";
 import { THEME as T, glassCard } from "../design-system";
+import { TickerSearch } from "./TickerSearch";
 
 // ─── TOP WINNERS / LOSERS ─────────────────────────────────────────────────────
 export function TopMovers({ investments }) {
@@ -370,9 +371,10 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", onSaveOrd
   const totalHuf = orders.reduce((s, o) => s + (o.hufTotal || 0), 0);
 
   const addOrder = () => {
-    if (!form.name.trim() || !limitPrice) return;
+    if (!form.name.trim() && !form.ticker) return;
+    const name = form.name.trim() || form.ticker;
     const order = {
-      ...form,
+      ...form, name,
       id: Date.now().toString(36), createdAt: new Date().toISOString(),
       limitPrice, quantity, totalNative,
       hufTotal:    hufTotal > 0 ? Math.round(hufTotal) : null,
@@ -430,17 +432,24 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", onSaveOrd
       {showAdd && (
         <div style={{ background:T.bg.inset, border:`1px solid ${T.border.subtle}`, borderRadius:T.radius.md, padding:14, marginBottom:14, display:"flex", flexDirection:"column", gap:12 }}>
 
-          {/* Sor 1: Megnevezés + Ticker */}
-          <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:10 }}>
+          {/* Sor 1: Ticker keresés */}
+          <TickerSearch
+            value={form.ticker}
+            fetchPrice={false}
+            onSelect={item => {
+              f("name",     item.name);
+              f("ticker",   item.symbol);
+              f("currency", item.currency || "USD");
+            }}
+            inputStyle={inputS}
+          />
+          {/* Név manuálisan is szerkeszthető */}
+          {form.name && (
             <div>
-              <L>Megnevezés *</L>
-              <input style={inputS} value={form.name} onChange={e=>f("name",e.target.value)} placeholder="pl. VanEck Defense ETF"/>
+              <L>Megnevezés</L>
+              <input style={{ ...inputS, background:"rgba(110,231,183,0.05)" }} value={form.name} onChange={e=>f("name",e.target.value)} placeholder="pl. VanEck Defense ETF"/>
             </div>
-            <div>
-              <L>Ticker</L>
-              <input style={inputS} value={form.ticker} onChange={e=>f("ticker",e.target.value.toUpperCase())} placeholder="DFNS.UK"/>
-            </div>
-          </div>
+          )}
 
           {/* Sor 2: Típus */}
           <div>
