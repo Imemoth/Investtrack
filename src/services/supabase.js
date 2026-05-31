@@ -286,7 +286,7 @@ export async function fetchPortfolioHistory(days = 90) {
   const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from("portfolio_snapshots")
-    .select("date, total_value, total_pnl")
+    .select("date, total_value, total_cost, total_pnl")
     .gte("date", from)
     .order("date", { ascending: true });
   if (error) throw error;
