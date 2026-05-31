@@ -323,8 +323,15 @@ export function savePending(p) { localStorage.setItem(PENDING_KEY, JSON.stringif
 const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", currency:"USD", quantity:"", hufValue:"", expiry:"", notes:"" };
 const TYPE_COLOR  = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
-export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", onSaveOrder, onDeleteOrder }) {
-  const [orders,    setOrders]    = useState(loadPending);
+export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", initialOrders, onSaveOrder, onDeleteOrder }) {
+  const [orders,    setOrders]    = useState(() => initialOrders?.length ? initialOrders : loadPending());
+
+  useEffect(() => {
+    if (initialOrders?.length) {
+      setOrders(initialOrders);
+      savePending(initialOrders);
+    }
+  }, [initialOrders]);
   const [showAdd,   setShowAdd]   = useState(false);
   const [expanded,  setExpanded]  = useState(null);
   const [form,      setForm]      = useState(EMPTY_ORDER);
