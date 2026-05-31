@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CATEGORY_COLORS } from "../constants";
 import { calcPnL, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum } from "../utils";
 import { StockChart } from "./StockChart";
