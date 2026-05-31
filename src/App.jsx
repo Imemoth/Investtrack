@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
 import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll } from "./utils";
-import { refreshAllPrices } from "./services/priceService";
+import { refreshAllPrices, fetchYahooPrice } from "./services/priceService";
 import { parseXTBFile } from "./services/xtbImporter";
 import {
   supabase, onAuthStateChange, signOut,
@@ -80,6 +80,7 @@ export default function App() {
     return saved ? new Date(saved) : null;
   });
   const [isBooting,       setIsBooting]       = useState(true);
+  const [refreshingId,    setRefreshingId]    = useState(null);
 
   // Rövid boot delay – fonts + layout betöltés
   useEffect(() => {
@@ -228,7 +229,7 @@ export default function App() {
         const hit = results.get(inv.ticker?.toUpperCase());
         if (!hit) return inv;
         const newPrice = inv.currency === "HUF" ? hit.hufPrice : hit.nativePrice;
-        return { ...inv, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency };
+        return { ...inv, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency, _refreshedAt: new Date().toISOString() };
       });
       // Célár riasztás
       updated.forEach(inv => {
@@ -256,6 +257,36 @@ export default function App() {
     } finally {
       setRefreshing(false);
       setRefreshProgress(null);
+    }
+  };
+
+  const handleRefreshSingle = async (inv) => {
+    if (refreshingId || !inv.ticker?.trim()) return;
+    setRefreshingId(inv.id);
+    try {
+      const data = await fetchYahooPrice(inv.ticker);
+      let finalPrice = data.price;
+      if (inv.currency === "HUF" && data.currency && data.currency !== "HUF") {
+        const rate = fxRates[data.currency] || 1;
+        finalPrice = data.price * rate;
+      }
+      setInvestments(prev => {
+        const updated = prev.map(i => i.id === inv.id
+          ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: new Date().toISOString() }
+          : i
+        );
+        if (user) {
+          const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
+          const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
+          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        }
+        return updated;
+      });
+      showToast(`✓ ${inv.ticker} frissítve!`, "success");
+    } catch (e) {
+      showToast(`❌ ${inv.ticker}: ${e.message}`, "error");
+    } finally {
+      setRefreshingId(null);
     }
   };
 
@@ -618,6 +649,8 @@ export default function App() {
             onSell={setSellInv}
             onEdit={inv => { setEditing(inv); setModal("edit"); }}
             onDelete={setConfirmDelete}
+            onRefreshSingle={handleRefreshSingle}
+            refreshingId={refreshingId}
           />
         )}
         </> /* isBooting */}

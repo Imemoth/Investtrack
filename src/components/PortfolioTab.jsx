@@ -15,6 +15,7 @@ export function PortfolioTab({
   displayed, showClosed, setShowClosed,
   chartMode, setChartMode,
   onDetail, onSell, onEdit, onDelete,
+  onRefreshSingle, refreshingId,
 }) {
   const S = makeStyles(theme);
 
@@ -48,6 +49,8 @@ export function PortfolioTab({
               avgBuyPrice={avgBuyPrice} quantity={quantity} up={pct>=0} theme={theme}
               onDetail={() => onDetail(inv)} onSell={() => onSell(inv)}
               onEdit={() => onEdit(inv)} onDelete={() => onDelete(inv)}
+              onRefresh={() => onRefreshSingle?.(inv)}
+              isRefreshing={refreshingId === inv.id}
             />
           );
         })}
