@@ -73,6 +73,7 @@ export default function App() {
   const [featureModal,    setFeatureModal]    = useState(null);
   const [confirmClear,    setConfirmClear]    = useState(false);
   const [importConfirm,   setImportConfirm]   = useState(null); // { type:"csv"|"xtb", parsed, closed?, msg }
+  const [pendingOrders,   setPendingOrders]   = useState([]);
   const [isDark,          setIsDark]          = useState(() => localStorage.getItem("investtrack_theme") !== "light");
   const [lastRefreshed,   setLastRefreshed]   = useState(() => {
     const saved = localStorage.getItem("investtrack_last_refresh");
@@ -186,9 +187,10 @@ export default function App() {
             localStorage.removeItem("investtrack_closed"); localStorage.removeItem("investtrack_pending_v1");
           }
         }
-        const [invs, closed] = await Promise.all([fetchInvestments(), fetchClosedPositions()]);
+        const [invs, closed, pending] = await Promise.all([fetchInvestments(), fetchClosedPositions(), fetchPendingOrders()]);
         setInvestments(migrateAll(invs));
         setClosedPositions(closed);
+        setPendingOrders(pending);
         setDbReady(true);
         setIsBooting(false);
       } catch (err) {
@@ -465,10 +467,10 @@ export default function App() {
       return s + (parseFloat(i.dividendYield) / 100) * calcPnL(i).value;
     }, 0);
 
-    const pendingTotal = loadPending().reduce((s, o) => s + (o.hufTotal || 0), 0);
+    const pendingTotal = pendingOrders.reduce((s, o) => s + (o.hufTotal || 0), 0);
 
     return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
-  }, [investments, closedPositions]);
+  }, [investments, closedPositions, pendingOrders]);
 
   // ── Filtered & sorted list ──
   const displayed = useMemo(() => {
@@ -581,8 +583,15 @@ export default function App() {
             stats={stats}
             fxRates={fxRates}
             displayCurrency={displayCurrency}
-            onSaveOrder={order => user && upsertPendingOrder(order).catch(console.warn)}
-            onDeleteOrder={id => user && deletePendingOrder(id).catch(console.warn)}
+            initialOrders={pendingOrders}
+            onSaveOrder={order => {
+              setPendingOrders(prev => prev.some(o => o.id === order.id) ? prev.map(o => o.id === order.id ? order : o) : [...prev, order]);
+              if (user) upsertPendingOrder(order).catch(console.warn);
+            }}
+            onDeleteOrder={id => {
+              setPendingOrders(prev => prev.filter(o => o.id !== id));
+              if (user) deletePendingOrder(id).catch(console.warn);
+            }}
           />
         )}
 

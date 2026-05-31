@@ -2,7 +2,7 @@
 import { fmtNum, fmtCurrency } from "../utils";
 import { TopMovers, CurrencyExposure, BenchmarkChart, RiskReturn, PendingOrders } from "./DashboardWidgets";
 
-export function DashboardTab({ theme, investments, stats, fxRates, displayCurrency, onSaveOrder, onDeleteOrder }) {
+export function DashboardTab({ theme, investments, stats, fxRates, displayCurrency, initialOrders, onSaveOrder, onDeleteOrder }) {
   const cards = [
     { label: "Portfólió értéke",
       val: fmtCurrency(stats.totalValue + stats.pendingTotal, "HUF"),
@@ -37,6 +37,7 @@ export function DashboardTab({ theme, investments, stats, fxRates, displayCurren
       <PendingOrders
         fxRates={fxRates}
         displayCurrency={displayCurrency}
+        initialOrders={initialOrders}
         onSaveOrder={onSaveOrder}
         onDeleteOrder={onDeleteOrder}
       />
