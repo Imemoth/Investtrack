@@ -3,8 +3,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL  = "https://mvuavscjumcsxwntfegi.supabase.co";
-const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dWF2c2NqdW1jc3h3bnRmZWdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxNjgyMDEsImV4cCI6MjA5NTc0NDIwMX0.ks1sShaisxeO_cUz7aubBdwFHkAHF5UOoqnUnA1t7hk";
+const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
 
@@ -35,9 +35,11 @@ export async function getUser() {
 
 // Összes befektetés lekérése
 export async function fetchInvestments() {
+  const userId = await getUserId();
   const { data, error } = await supabase
     .from("investments")
     .select("*")
+    .eq("user_id", userId)
     .order("created_at", { ascending: true });
   if (error) throw error;
   return data.map(dbToInvestment);
@@ -127,9 +129,11 @@ function dbToInvestment(row) {
 // ─── CLOSED POSITIONS ─────────────────────────────────────────────────────────
 
 export async function fetchClosedPositions() {
+  const userId = await getUserId();
   const { data, error } = await supabase
     .from("closed_positions")
     .select("*")
+    .eq("user_id", userId)
     .order("close_date", { ascending: false });
   if (error) throw error;
   return data.map(dbToClosed);
@@ -204,9 +208,11 @@ function dbToClosed(row) {
 // ─── PENDING ORDERS ───────────────────────────────────────────────────────────
 
 export async function fetchPendingOrders() {
+  const userId = await getUserId();
   const { data, error } = await supabase
     .from("pending_orders")
     .select("*")
+    .eq("user_id", userId)
     .order("created_at", { ascending: true });
   if (error) throw error;
   return data.map(dbToPending);

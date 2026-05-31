@@ -12,6 +12,7 @@ export function fmtCurrency(n, currency = "HUF") {
 }
 
 export function uid() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 

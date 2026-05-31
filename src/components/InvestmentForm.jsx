@@ -34,6 +34,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
 
   // Ticker kiválasztásakor automatikusan tölt
   const [priceLoading, setPriceLoading] = useState(false);
+  const [formError, setFormError] = useState(null);
 
   const handleTickerSelect = (item) => {
     set("ticker",   item.symbol);
@@ -57,11 +58,12 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
   };
 
   const handleSave = () => {
-    if (!form.name.trim()) return alert("Adj meg megnevezést!");
+    if (!form.name.trim()) { setFormError("Adj meg megnevezést!"); return; }
     const validLots = lots
       .filter(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0)
       .map(l => ({ ...l, price: parseFloat(l.price), quantity: parseFloat(l.quantity) }));
-    if (!validLots.length) return alert("Legalább egy érvényes vételi tétel kell!");
+    if (!validLots.length) { setFormError("Legalább egy érvényes vételi tétel kell!"); return; }
+    setFormError(null);
     onSave({
       ...form,
       id:           form.id || uid(),
@@ -181,6 +183,13 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
           </div>
         )}
       </div>
+
+      {/* Validációs hiba */}
+      {formError && (
+        <div style={{ color: T.accent.red, fontSize: 12, padding: "8px 12px", background: "rgba(252,165,165,0.08)", borderRadius: T.radius.md, border: "1px solid rgba(252,165,165,0.25)" }}>
+          {formError}
+        </div>
+      )}
 
       {/* Akciók */}
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>

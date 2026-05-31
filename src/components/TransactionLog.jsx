@@ -32,6 +32,7 @@ export function addTransaction(inv, type) {
 export function TransactionLog({ onClose }) {
   const [txs, setTxs]   = useState(loadTransactions);
   const [filter, setFilter] = useState("all");
+  const [confirmClearTx, setConfirmClearTx] = useState(false);
 
   const filtered = filter === "all" ? txs : txs.filter(t => t.type === filter);
 
@@ -42,9 +43,9 @@ export function TransactionLog({ onClose }) {
   };
 
   const clearAll = () => {
-    if (!confirm("Biztosan törlöd az összes tranzakciót?")) return;
     saveTransactions([]);
     setTxs([]);
+    setConfirmClearTx(false);
   };
 
   return (
@@ -56,7 +57,7 @@ export function TransactionLog({ onClose }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <span style={{ fontWeight: 700, color: "#E6EDF3", fontSize: 16 }}>📝 Tranzakció napló</span>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={clearAll} style={{ background: "none", border: "1px solid #3D1A1A", borderRadius: 6, padding: "5px 10px", color: "#FCA5A5", cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>Törlés</button>
+              <button onClick={() => setConfirmClearTx(true)} style={{ background: "none", border: "1px solid #3D1A1A", borderRadius: 6, padding: "5px 10px", color: "#FCA5A5", cursor: "pointer", fontSize: 11, fontFamily: "inherit" }}>Törlés</button>
               <button onClick={onClose} style={{ background: "none", border: "none", color: "#8B949E", cursor: "pointer", fontSize: 22 }}>×</button>
             </div>
           </div>
@@ -71,6 +72,17 @@ export function TransactionLog({ onClose }) {
             ))}
           </div>
         </div>
+
+        {/* Törlés megerősítése */}
+        {confirmClearTx && (
+          <div style={{ margin: "0 16px 8px", padding: "12px 16px", background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.25)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <span style={{ fontSize: 13, color: "#FCA5A5" }}>Biztosan törlöd az összes tranzakciót?</span>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              <button onClick={() => setConfirmClearTx(false)} style={{ background: "none", border: "1px solid #30363D", borderRadius: 6, padding: "4px 10px", color: "#8B949E", cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>Mégsem</button>
+              <button onClick={clearAll} style={{ background: "rgba(252,165,165,0.15)", border: "1px solid rgba(252,165,165,0.4)", borderRadius: 6, padding: "4px 10px", color: "#FCA5A5", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit" }}>Törlés</button>
+            </div>
+          </div>
+        )}
 
         {/* List */}
         <div style={{ overflowY: "auto", flex: 1, padding: "8px 16px 24px" }}>
