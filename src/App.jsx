@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
 import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll } from "./utils";
-import { refreshAllPrices } from "./services/priceService";
+import { refreshAllPrices, fetchYahooPrice } from "./services/priceService";
 import { parseXTBFile } from "./services/xtbImporter";
 import {
   supabase, onAuthStateChange, signOut,
@@ -272,18 +272,22 @@ export default function App() {
 
   const handleRefreshSingle = async (inv) => {
     if (refreshingId || !inv.ticker?.trim()) return;
+    // Ha HUF-os részvény és nincs még érvényes cached FX rate, teljes frissítés kell
+    const needsFx = inv.currency === "HUF";
+    const hasCachedFx = needsFx ? Object.values(fxRates).some(r => r > 1) : true;
+    if (!hasCachedFx) {
+      showToast("Először végezz teljes árfolyamfrissítést a devizaárfolyamokhoz!", "info");
+      return;
+    }
     setRefreshingId(inv.id);
     try {
-      const { results, fxRates: newFxRates } = await refreshAllPrices([inv], null);
-      if (newFxRates && Object.keys(newFxRates).length > 0) {
-        setFxRates(newFxRates);
-        localStorage.setItem("investtrack_fx", JSON.stringify(newFxRates));
+      const data = await fetchYahooPrice(inv.ticker);
+      let finalPrice = data.price;
+      if (needsFx && data.currency && data.currency !== "HUF") {
+        finalPrice = data.price * (fxRates[data.currency] || 1);
       }
-      const hit = results.get(inv.ticker.toUpperCase());
-      if (!hit) { showToast(`❌ ${inv.ticker}: nem sikerült lekérni`, "error"); return; }
-      const newPrice = inv.currency === "HUF" ? hit.hufPrice : hit.nativePrice;
       const updated = investments.map(i => i.id === inv.id
-        ? { ...i, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency, _refreshedAt: new Date().toISOString() }
+        ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: new Date().toISOString() }
         : i
       );
       setInvestments(updated);
