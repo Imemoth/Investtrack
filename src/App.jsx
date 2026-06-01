@@ -609,6 +609,7 @@ export default function App() {
         userEmail={user?.email}
         isDark={isDark}
         onToggleTheme={toggleTheme}
+        fxRates={fxRates}
       />
 
       <main style={S.main}>
