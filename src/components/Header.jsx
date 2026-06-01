@@ -107,7 +107,7 @@ export function Header({
             )}
             {fxRates.EUR > 1 && fxRates.USD > 1 && (
               <span style={{ color: theme.text.tertiary }}>
-                E/U <span style={{ color: theme.text.secondary, fontWeight: 700 }}>{fmtNum(fxRates.EUR / fxRates.USD, 3)}</span>
+                EUR/USD <span style={{ color: theme.text.secondary, fontWeight: 700 }}>{fmtNum(fxRates.EUR / fxRates.USD, 3)}</span>
               </span>
             )}
           </div>

@@ -110,7 +110,7 @@ export const LIGHT_THEME = {
   },
   accent: {
     ...THEME.accent,
-    yellow: "#B45309",
+    yellow: "#C2410C",
   },
 };
 
