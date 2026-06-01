@@ -35,6 +35,7 @@ export function AppModals({
   handleClearPortfolio,
   doDelete,
   setInvestments,
+  handleSwitchPortfolio,
   showToast,
   // Button styles
   btnPrimary, btnGhost,
@@ -173,7 +174,7 @@ export function AppModals({
       {featureModal && (
         <FeatureModal feature={featureModal} investments={investments}
           onClose={() => setFeatureModal(null)}
-          onSwitchPortfolio={invs => { setInvestments(invs); showToast("Portfólió betöltve!"); }} />
+          onSwitchPortfolio={handleSwitchPortfolio} />
       )}
 
       <Toast toast={toast} />

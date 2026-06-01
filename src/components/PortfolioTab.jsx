@@ -149,7 +149,7 @@ function Filters({ theme, search, setSearch, filterCat, setFilterCat, sortBy, se
       <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4, marginBottom:10 }}>
         {["Összes", ...CATEGORIES].map(cat => (
           <button key={cat} onClick={() => setFilterCat(cat)} style={{
-            flexShrink:0, background:filterCat===cat ? (CATEGORY_COLORS[cat]+"25"||theme.bg.overlay) : "none",
+            flexShrink:0, background:filterCat===cat ? (CATEGORY_COLORS[cat] ? CATEGORY_COLORS[cat]+"25" : theme.bg.overlay) : "none",
             border:`1px solid ${filterCat===cat ? (CATEGORY_COLORS[cat]||theme.accent.green) : theme.border.subtle}`,
             borderRadius:theme.radius.full, padding:"5px 12px", cursor:"pointer",
             fontSize:12, fontWeight:filterCat===cat?700:400,

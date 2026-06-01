@@ -216,7 +216,11 @@ export function BenchmarkChart({ investments }) {
         <div style={{ height: 70, display: "flex", alignItems: "center", justifyContent: "center", color: T.text.tertiary, fontSize: 12 }}>
           Betöltés...
         </div>
-      ) : benchData?.length > 1 && (() => {
+      ) : !benchData?.length ? (
+        <div style={{ height: 70, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: T.text.tertiary, fontSize: 12 }}>
+          <span>📡</span><span>S&P 500 adat nem elérhető</span>
+        </div>
+      ) : benchData.length > 1 && (() => {
         const closes = benchData.map(p => p.close);
         const minV   = Math.min(...closes) * 0.998;
         const maxV   = Math.max(...closes) * 1.002;

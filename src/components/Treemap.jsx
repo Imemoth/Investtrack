@@ -83,7 +83,7 @@ export function Treemap({ data, onSelect }) {
   if (!rects.length) return null;
 
   return (
-    <div style={{ position: "relative", width: "100%", borderRadius: 10, overflow: "hidden", background: T.bg.inset }}>
+    <div style={{ position: "relative", width: "100%", maxWidth: 520, margin: "0 auto", borderRadius: 10, overflow: "hidden", background: T.bg.inset }}>
       <svg
         width="100%" viewBox={`0 0 ${W} ${H}`}
         style={{ display: "block", cursor: "pointer" }}

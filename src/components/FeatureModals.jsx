@@ -13,8 +13,8 @@ export function PnLSummary({ investments }) {
 
     // Szimulálunk historikus snapshot-ot a vételárak + dátumok alapján
     // (valódi historikus adat csak price history-val lenne pontos)
-    const total = investments.reduce((s, i) => s + i.currentPrice * i.quantity, 0);
-    const cost  = investments.reduce((s, i) => s + i.buyPrice * i.quantity, 0);
+    const total = investments.reduce((s, i) => s + calcPnL(i).value, 0);
+    const cost  = investments.reduce((s, i) => s + calcPnL(i).cost, 0);
     const pnl   = total - cost;
     const pct   = cost > 0 ? pnl / cost * 100 : 0;
 
@@ -278,8 +278,8 @@ export function MultiPortfolio({ currentInvestments, onSwitch, onClose }) {
 
       {/* Portfóliók listája */}
       {Object.entries(allPortfolios).map(([name, invs]) => {
-        const total = invs.reduce((s, i) => s + i.currentPrice * i.quantity, 0);
-        const cost  = invs.reduce((s, i) => s + i.buyPrice * i.quantity, 0);
+        const total = invs.reduce((s, i) => s + calcPnL(i).value, 0);
+        const cost  = invs.reduce((s, i) => s + calcPnL(i).cost, 0);
         const pnl   = cost > 0 ? ((total - cost) / cost * 100) : 0;
         const isActive = name === "XTB (aktív)";
         return (

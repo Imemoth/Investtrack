@@ -108,6 +108,10 @@ export const LIGHT_THEME = {
     warning:   "#9A6700",
     info:      "#0969DA",
   },
+  accent: {
+    ...THEME.accent,
+    yellow: "#B45309",
+  },
 };
 
 // ── Glassmorphism kártya helper ──────────────────────────────

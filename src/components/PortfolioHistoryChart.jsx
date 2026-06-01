@@ -37,6 +37,7 @@ export function PortfolioHistoryChart({ theme = T }) {
   }, [rangeIdx]);
 
   const isEmpty = !loading && data.length < 2;
+  const hasOneDay = !loading && data.length === 1;
   const lastPoint = data[data.length - 1];
   const isUp = lastPoint ? lastPoint.total_value >= (data[0]?.total_value ?? 0) : true;
   const lineColor = isUp ? "#6EE7B7" : "#FCA5A5";
@@ -90,7 +91,9 @@ export function PortfolioHistoryChart({ theme = T }) {
         <div style={{ height: H, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 6 }}>
           <span style={{ fontSize: 22 }}>📊</span>
           <span style={{ fontSize: 12, color: theme.text.tertiary, textAlign: "center", lineHeight: 1.5 }}>
-            Még nincs elég adat.<br />Frissítsd az árfolyamokat a felvételhez!
+            {hasOneDay
+              ? <>1 nap rögzítve ✓<br />Holnap megjelenik a görbe!</>
+              : <>Még nincs adat.<br />Frissítsd az árfolyamokat a felvételhez!</>}
           </span>
         </div>
       ) : (

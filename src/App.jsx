@@ -304,6 +304,15 @@ export default function App() {
     }
   };
 
+  const handleSwitchPortfolio = async (invs) => {
+    setInvestments(invs);
+    showToast("Portfólió betöltve! Frissítsd az árfolyamokat.", "info");
+    if (user) {
+      try { await upsertInvestments(invs); }
+      catch (e) { showToast("DB szinkron hiba: " + e.message, "error"); }
+    }
+  };
+
   const handleResetPrices = () => {
     setInvestments(prev => prev.map(inv => ({ ...inv, currentPrice: 0 })));
     showToast("Árak nullázva – nyomj Árfolyam frissítésre!", "info");
@@ -600,6 +609,7 @@ export default function App() {
         userEmail={user?.email}
         isDark={isDark}
         onToggleTheme={toggleTheme}
+        fxRates={fxRates}
       />
 
       <main style={S.main}>
@@ -697,6 +707,7 @@ export default function App() {
         handleClearPortfolio={handleClearPortfolio}
         doDelete={doDelete}
         setInvestments={setInvestments}
+        handleSwitchPortfolio={handleSwitchPortfolio}
         showToast={showToast}
         btnPrimary={S.btn("primary")}
         btnGhost={S.btn("ghost")}
