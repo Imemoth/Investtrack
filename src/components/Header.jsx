@@ -14,7 +14,7 @@ export function Header({
   onClearPortfolio,
   onSignOut, userEmail,
   isDark, onToggleTheme,
-  fxRates,
+  fxRates, onRefreshFx, refreshingFx,
 }) {
   const theme = isDark ? T : LIGHT_THEME;
   const headerBg  = isDark ? "rgba(7,11,20,0.85)"  : "rgba(240,244,248,0.93)";
@@ -94,28 +94,39 @@ export function Header({
 
         {/* FX rates ticker – kattintásra frissít */}
         {hasFx && (
-          <button onClick={() => { onRefreshFx?.(); haptic("light"); }} title="Devizaárfolyam frissítése" style={{
-            display: "flex", gap: 8, flexShrink: 0, fontSize: 10, fontFamily: "'DM Mono',monospace",
-            background: "none", border: "none", cursor: "pointer", padding: "4px 6px",
-            borderRadius: theme.radius.sm, transition: theme.transition.fast,
-          }}
-            onMouseEnter={e => e.currentTarget.style.background = theme.bg.surface}
+          <button
+            onClick={() => { if (!refreshingFx) { onRefreshFx?.(); haptic("light"); } }}
+            title="Devizaárfolyam frissítése"
+            style={{
+              display: "flex", gap: 8, flexShrink: 0, fontSize: 10, fontFamily: "'DM Mono',monospace",
+              background: "none", border: "none",
+              cursor: refreshingFx ? "not-allowed" : "pointer",
+              opacity: refreshingFx ? 0.5 : 1,
+              padding: "4px 6px", borderRadius: theme.radius.sm, transition: theme.transition.fast,
+            }}
+            onMouseEnter={e => { if (!refreshingFx) e.currentTarget.style.background = theme.bg.surface; }}
             onMouseLeave={e => e.currentTarget.style.background = "none"}
           >
-            {fxRates.USD > 1 && (
-              <span style={{ color: theme.text.tertiary }}>
-                USD/<span style={{ color: theme.text.secondary, fontWeight: 700 }}>{Math.round(fxRates.USD)}</span>
-              </span>
-            )}
-            {fxRates.EUR > 1 && (
-              <span style={{ color: theme.text.tertiary }}>
-                EUR/<span style={{ color: theme.text.secondary, fontWeight: 700 }}>{Math.round(fxRates.EUR)}</span>
-              </span>
-            )}
-            {fxRates.EUR > 1 && fxRates.USD > 1 && (
-              <span style={{ color: theme.text.tertiary }}>
-                EUR/USD <span style={{ color: theme.text.secondary, fontWeight: 700 }}>{fmtNum(fxRates.EUR / fxRates.USD, 3)}</span>
-              </span>
+            {refreshingFx ? (
+              <span style={{ color: theme.text.tertiary }}>⏳ deviza...</span>
+            ) : (
+              <>
+                {fxRates.USD > 1 && (
+                  <span style={{ color: theme.text.tertiary }}>
+                    USD/<span style={{ color: theme.text.secondary, fontWeight: 700 }}>{Math.round(fxRates.USD)}</span>
+                  </span>
+                )}
+                {fxRates.EUR > 1 && (
+                  <span style={{ color: theme.text.tertiary }}>
+                    EUR/<span style={{ color: theme.text.secondary, fontWeight: 700 }}>{Math.round(fxRates.EUR)}</span>
+                  </span>
+                )}
+                {fxRates.EUR > 1 && fxRates.USD > 1 && (
+                  <span style={{ color: theme.text.tertiary }}>
+                    EUR/USD <span style={{ color: theme.text.secondary, fontWeight: 700 }}>{fmtNum(fxRates.EUR / fxRates.USD, 3)}</span>
+                  </span>
+                )}
+              </>
             )}
           </button>
         )}
