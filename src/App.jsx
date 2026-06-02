@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
 import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll } from "./utils";
-import { refreshAllPrices, fetchYahooPrice } from "./services/priceService";
+import { refreshAllPrices, fetchYahooPrice, fetchFxRates } from "./services/priceService";
 import { parseXTBFile } from "./services/xtbImporter";
 import {
   supabase, onAuthStateChange, signOut,
@@ -264,6 +264,27 @@ export default function App() {
       showToast(fail > 0 ? `⚠️ ${ok} frissítve, ${fail} sikertelen: ${errors.join(", ")}` : `✓ ${ok} árfolyam frissítve!`, fail > 0 ? "info" : "success");
     } catch (e) {
       showToast(`❌ ${e.message}`, "error");
+    } finally {
+      setRefreshing(false);
+      setRefreshProgress(null);
+    }
+  };
+
+  const handleRefreshFx = async () => {
+    if (refreshing) return;
+    setRefreshProgress("Devizaárfolyamok...");
+    setRefreshing(true);
+    try {
+      const newFx = await fetchFxRates();
+      if (Object.values(newFx).some(r => r > 1)) {
+        setFxRates(newFx);
+        localStorage.setItem("investtrack_fx", JSON.stringify(newFx));
+        showToast(`✓ USD ${Math.round(newFx.USD)} · EUR ${Math.round(newFx.EUR)} HUF`, "success");
+      } else {
+        showToast("❌ Devizaárfolyam lekérés sikertelen", "error");
+      }
+    } catch (e) {
+      showToast("❌ Devizaárfolyam: " + e.message, "error");
     } finally {
       setRefreshing(false);
       setRefreshProgress(null);
@@ -610,6 +631,7 @@ export default function App() {
         isDark={isDark}
         onToggleTheme={toggleTheme}
         fxRates={fxRates}
+        onRefreshFx={handleRefreshFx}
       />
 
       <main style={S.main}>

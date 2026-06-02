@@ -92,9 +92,16 @@ export function Header({
           Invest<span style={{ color: theme.accent.green }}>Track</span>
         </span>
 
-        {/* FX rates ticker */}
+        {/* FX rates ticker – kattintásra frissít */}
         {hasFx && (
-          <div style={{ display: "flex", gap: 8, flexShrink: 0, fontSize: 10, fontFamily: "'DM Mono',monospace" }}>
+          <button onClick={() => { onRefreshFx?.(); haptic("light"); }} title="Devizaárfolyam frissítése" style={{
+            display: "flex", gap: 8, flexShrink: 0, fontSize: 10, fontFamily: "'DM Mono',monospace",
+            background: "none", border: "none", cursor: "pointer", padding: "4px 6px",
+            borderRadius: theme.radius.sm, transition: theme.transition.fast,
+          }}
+            onMouseEnter={e => e.currentTarget.style.background = theme.bg.surface}
+            onMouseLeave={e => e.currentTarget.style.background = "none"}
+          >
             {fxRates.USD > 1 && (
               <span style={{ color: theme.text.tertiary }}>
                 USD/<span style={{ color: theme.text.secondary, fontWeight: 700 }}>{Math.round(fxRates.USD)}</span>
@@ -110,7 +117,7 @@ export function Header({
                 EUR/USD <span style={{ color: theme.text.secondary, fontWeight: 700 }}>{fmtNum(fxRates.EUR / fxRates.USD, 3)}</span>
               </span>
             )}
-          </div>
+          </button>
         )}
 
         {/* Tab switcher */}
@@ -234,6 +241,7 @@ export function Header({
             </svg>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{refreshing ? (refreshProgress || "Frissítés...") : "Árfolyam frissítése"}</span>
           </button>
+          <MenuItem icon="💱" label="Deviza frissítése"    onClick={onRefreshFx} />
           <MenuItem icon="🔔" label="Push értesítések"   onClick={onPush} />
           <MenuItem icon="🔁" label="Árak nullázása"     onClick={onResetPrices} />
 
