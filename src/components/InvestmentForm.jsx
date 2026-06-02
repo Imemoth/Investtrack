@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { CATEGORIES, CURRENCIES, EMPTY_FORM } from "../constants";
 import { uid, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum } from "../utils";
 import { THEME as T, glassCard, haptic } from "../design-system";
@@ -6,34 +6,47 @@ import { TickerSearch, fetchQuoteDetails, typeToCategory } from "./TickerSearch"
 
 // ─── INVESTMENT FORM ──────────────────────────────────────────────────────────
 export function InvestmentForm({ initial, onSave, onCancel }) {
+  // FX rates from localStorage — read once, used for HUF↔native conversion
+  const fxRates = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem("investtrack_fx") || "{}"); } catch { return {}; }
+  }, []);
+  const getFx = (currency) => currency === "HUF" ? 1 : (parseFloat(fxRates[currency]) || 1);
+
+  const blankLot = () => ({ id: uid(), price: "", quantity: "", date: new Date().toISOString().slice(0, 10), notes: "", amount: "" });
   const initLots = initial?.lots?.length > 0
-    ? initial.lots.map(l => {
-        const p = parseFloat(l.price), q = parseFloat(l.quantity);
-        return { ...l, amount: l.amount != null ? String(l.amount) : (p > 0 && q > 0 ? String(Math.round(p * q * 100) / 100) : "") };
-      })
+    ? initial.lots.map(l => ({ ...l, amount: "" }))
     : initial?.buyPrice
-      ? [{ id: uid(), price: String(initial.buyPrice), quantity: String(initial.quantity || ""), date: initial.buyDate || "", notes: "", amount: initial.buyPrice && initial.quantity ? String(Math.round(initial.buyPrice * initial.quantity * 100) / 100) : "" }]
-      : [{ id: uid(), price: "", quantity: "", date: "", notes: "", amount: "" }];
+      ? [{ id: uid(), price: String(initial.buyPrice), quantity: String(initial.quantity || ""), date: initial.buyDate || "", notes: "", amount: "" }]
+      : [blankLot()];
 
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
   const [lots, setLots] = useState(initLots);
+
+  // Recalculate HUF amounts whenever currency changes (or on mount with existing lots)
+  useEffect(() => {
+    const fx = getFx(form.currency);
+    setLots(ls => ls.map(l => {
+      const p = parseFloat(l.price), q = parseFloat(l.quantity);
+      return { ...l, amount: (p > 0 && q > 0) ? String(Math.round(p * q * fx)) : "" };
+    }));
+  }, [form.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const updateLot = (id, key, val) => setLots(ls => ls.map(l => {
     if (l.id !== id) return l;
     const updated = { ...l, [key]: val };
+    const fx = getFx(form.currency);
     if (key === "price" || key === "quantity") {
       const p = parseFloat(key === "price" ? val : l.price);
       const q = parseFloat(key === "quantity" ? val : l.quantity);
-      updated.amount = (p > 0 && q > 0) ? String(Math.round(p * q * 100) / 100) : "";
+      updated.amount = (p > 0 && q > 0) ? String(Math.round(p * q * fx)) : "";
     } else if (key === "amount") {
-      const p = parseFloat(l.price);
-      const a = parseFloat(val);
-      if (p > 0 && a > 0) updated.quantity = String(Math.round(a / p * 10000) / 10000);
+      const p = parseFloat(l.price), a = parseFloat(val);
+      if (p > 0 && a > 0 && fx > 0) updated.quantity = String(Math.round(a / (p * fx) * 10000) / 10000);
     }
     return updated;
   }));
-  const addLot    = () => { setLots(ls => [...ls, { id: uid(), price: "", quantity: "", date: new Date().toISOString().slice(0,10), notes: "", amount: "" }]); haptic("light"); };
+  const addLot = () => { setLots(ls => [...ls, blankLot()]); haptic("light"); };
   const removeLot = id => setLots(ls => ls.length > 1 ? ls.filter(l => l.id !== id) : ls);
 
   const avgPrice  = calcAvgBuyPrice(lots);
@@ -179,11 +192,14 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
               </div>
               <div style={grid2}>
                 <div style={{ marginTop: 8 }}>
-                  <label style={{ ...labelStyle, fontSize: 10 }}>Befektetett ({form.currency})</label>
+                  <label style={{ ...labelStyle, fontSize: 10 }}>
+                    Befektetett (Ft)
+                    {form.currency !== "HUF" && !fxRates[form.currency] && <span style={{ color: T.accent.red, marginLeft: 4, fontWeight: 400 }}>– FX nincs</span>}
+                  </label>
                   <input style={{ ...inputStyle, fontSize: 13, background: lot.amount ? "rgba(110,231,183,0.06)" : T.bg.inset }}
                     type="number" value={lot.amount}
                     onChange={e => updateLot(lot.id, "amount", e.target.value)}
-                    placeholder="ár × db" />
+                    placeholder="összeg forintban" />
                 </div>
                 <div style={{ marginTop: 8 }}>
                   <label style={{ ...labelStyle, fontSize: 10 }}>Vétel dátuma</label>
@@ -198,7 +214,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
         {lots.some(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0) && (
           <div style={{ ...glassCard(T, { padding: 12 }), marginTop: 10, background: "rgba(110,231,183,0.06)", border: `1px solid rgba(110,231,183,0.2)` }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
-              {[["Átlag vételár", fmtNum(avgPrice, 2)], ["Összmennyiség", fmtNum(totalQty, 4)], ["Befektetett", fmtNum(totalCost, 0)]].map(([l, v]) => (
+              {[["Átlag vételár", fmtNum(avgPrice, 2)], ["Összmennyiség", fmtNum(totalQty, 4)], ["Befektetett", fmtNum(totalCost * getFx(form.currency), 0) + " Ft"]].map(([l, v]) => (
                 <div key={l}>
                   <div style={{ fontSize: 9, color: T.text.tertiary, textTransform: "uppercase", marginBottom: 3 }}>{l}</div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.accent.green, fontFamily: "'DM Mono',monospace" }}>{v}</div>
