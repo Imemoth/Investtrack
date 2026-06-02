@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
-import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll } from "./utils";
+import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll, uid } from "./utils";
 import { refreshAllPrices, fetchYahooPrice, fetchFxRates } from "./services/priceService";
 import { parseXTBFile } from "./services/xtbImporter";
 import {
@@ -391,6 +391,25 @@ export default function App() {
     showToast(editing ? "Befektetés frissítve!" : "Befektetés hozzáadva!");
   }, [editing]);
 
+  const handleConvertOrder = (order, { price, quantity, date }) => {
+    const actualPrice = parseFloat(price) || order.limitPrice || 0;
+    const actualQty   = parseFloat(quantity) || order.quantity || 0;
+    const lotId       = uid();
+    const newInv = {
+      id: uid(), name: order.name, ticker: order.ticker || "",
+      category: "Részvény", currency: order.currency || "USD",
+      currentPrice: actualPrice, targetPrice: "", dividendYield: "", notes: order.notes || "",
+      lots: [{ id: lotId, price: actualPrice, quantity: actualQty, date: date || new Date().toISOString().slice(0, 10) }],
+      buyPrice: actualPrice, quantity: actualQty, realizedPnL: 0, sales: [],
+    };
+    setInvestments(prev => [...prev, newInv]);
+    addTransaction(newInv, "buy");
+    if (user) upsertInvestment(newInv).catch(console.warn);
+    setPendingOrders(prev => prev.filter(o => o.id !== order.id));
+    if (user) deletePendingOrder(order.id).catch(console.warn);
+    showToast(`✅ ${order.name} rögzítve a portfólióba!`, "success");
+  };
+
   const doDelete = id => {
     const inv = investments.find(i => i.id === id);
     if (inv) addTransaction(inv, "sell");
@@ -673,6 +692,7 @@ export default function App() {
               setPendingOrders(prev => prev.filter(o => o.id !== id));
               if (user) deletePendingOrder(id).catch(console.warn);
             }}
+            onConvertOrder={handleConvertOrder}
           />
         )}
 
