@@ -327,7 +327,7 @@ export function savePending(p) { localStorage.setItem(PENDING_KEY, JSON.stringif
 const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", currency:"USD", quantity:"", hufValue:"", expiry:"", notes:"" };
 const TYPE_COLOR  = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
-export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", initialOrders, onSaveOrder, onDeleteOrder }) {
+export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", initialOrders, onSaveOrder, onDeleteOrder, onConvertOrder }) {
   const [orders,    setOrders]    = useState(() => initialOrders?.length ? initialOrders : loadPending());
 
   useEffect(() => {
@@ -336,9 +336,11 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", initialOr
       savePending(initialOrders);
     }
   }, [initialOrders]);
-  const [showAdd,   setShowAdd]   = useState(false);
-  const [expanded,  setExpanded]  = useState(null);
-  const [form,      setForm]      = useState(EMPTY_ORDER);
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [expanded,     setExpanded]     = useState(null);
+  const [convertingId, setConvertingId] = useState(null);
+  const [convertForm,  setConvertForm]  = useState({ price: "", quantity: "", date: "" });
+  const [form,         setForm]         = useState(EMPTY_ORDER);
   const f = (k, v) => setForm(p => ({...p, [k]: v}));
 
   const limitPrice  = parseFloat(form.limitPrice) || 0;
@@ -604,6 +606,60 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", initialOr
                     </div>
                   ))}
                 </div>
+
+                {/* Teljesítés rögzítése – inline form */}
+                {convertingId === o.id ? (
+                  <div style={{ background:"rgba(110,231,183,0.06)", border:`1px solid rgba(110,231,183,0.25)`, borderRadius:T.radius.md, padding:12, marginBottom:8 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.accent.green, marginBottom:10 }}>✅ Portfólióba rögzítés</div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:8 }}>
+                      <div>
+                        <L>Vételár ({o.currency})</L>
+                        <input style={inputS} type="number" value={convertForm.price}
+                          onChange={e => setConvertForm(f => ({...f, price: e.target.value}))} />
+                      </div>
+                      <div>
+                        <L>Mennyiség (db)</L>
+                        <input style={inputS} type="number" value={convertForm.quantity}
+                          onChange={e => setConvertForm(f => ({...f, quantity: e.target.value}))} />
+                      </div>
+                    </div>
+                    <div style={{ marginBottom:10 }}>
+                      <L>Vétel dátuma</L>
+                      <input style={{ ...inputS, colorScheme:"dark" }} type="date" value={convertForm.date}
+                        onChange={e => setConvertForm(f => ({...f, date: e.target.value}))} />
+                    </div>
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button onClick={e => { e.stopPropagation(); setConvertingId(null); }} style={{
+                        flex:1, background:"none", border:`1px solid ${T.border.default}`,
+                        borderRadius:T.radius.sm, padding:"8px", color:T.text.secondary,
+                        cursor:"pointer", fontSize:12, fontFamily:"inherit",
+                      }}>Mégse</button>
+                      <button onClick={e => {
+                        e.stopPropagation();
+                        onConvertOrder?.(o, convertForm);
+                        const next = orders.filter(x => x.id !== o.id);
+                        setOrders(next); savePending(next);
+                        setConvertingId(null); setExpanded(null);
+                      }} style={{
+                        flex:2, background:T.gradient.primary, border:"none",
+                        borderRadius:T.radius.sm, padding:"8px", color:"#fff",
+                        cursor:"pointer", fontSize:12, fontWeight:700, fontFamily:"inherit",
+                        boxShadow:"0 2px 10px rgba(46,160,67,0.35)",
+                      }}>📥 Rögzítés a portfólióba</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={e => {
+                    e.stopPropagation();
+                    setConvertingId(o.id);
+                    setConvertForm({ price: String(o.limitPrice || ""), quantity: String(o.quantity || ""), date: new Date().toISOString().slice(0,10) });
+                  }} style={{
+                    width:"100%", background:"rgba(110,231,183,0.1)", border:`1px solid rgba(110,231,183,0.3)`,
+                    borderRadius:T.radius.sm, padding:"8px", color:T.accent.green,
+                    cursor:"pointer", fontSize:12, fontWeight:700, fontFamily:"inherit", marginBottom:6,
+                  }}>📥 Teljesítés rögzítése</button>
+                )}
+
                 <button onClick={e => { e.stopPropagation(); removeOrder(o.id); }} style={{
                   width:"100%", background:"rgba(252,165,165,0.08)", border:`1px solid rgba(252,165,165,0.25)`,
                   borderRadius:T.radius.sm, padding:"7px", color:T.accent.red,

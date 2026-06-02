@@ -7,17 +7,33 @@ import { TickerSearch, fetchQuoteDetails, typeToCategory } from "./TickerSearch"
 // ─── INVESTMENT FORM ──────────────────────────────────────────────────────────
 export function InvestmentForm({ initial, onSave, onCancel }) {
   const initLots = initial?.lots?.length > 0
-    ? initial.lots
+    ? initial.lots.map(l => {
+        const p = parseFloat(l.price), q = parseFloat(l.quantity);
+        return { ...l, amount: l.amount != null ? String(l.amount) : (p > 0 && q > 0 ? String(Math.round(p * q * 100) / 100) : "") };
+      })
     : initial?.buyPrice
-      ? [{ id: uid(), price: String(initial.buyPrice), quantity: String(initial.quantity || ""), date: initial.buyDate || "", notes: "" }]
-      : [{ id: uid(), price: "", quantity: "", date: "", notes: "" }];
+      ? [{ id: uid(), price: String(initial.buyPrice), quantity: String(initial.quantity || ""), date: initial.buyDate || "", notes: "", amount: initial.buyPrice && initial.quantity ? String(Math.round(initial.buyPrice * initial.quantity * 100) / 100) : "" }]
+      : [{ id: uid(), price: "", quantity: "", date: "", notes: "", amount: "" }];
 
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
   const [lots, setLots] = useState(initLots);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  const updateLot = (id, key, val) => setLots(ls => ls.map(l => l.id === id ? { ...l, [key]: val } : l));
-  const addLot    = () => { setLots(ls => [...ls, { id: uid(), price: "", quantity: "", date: new Date().toISOString().slice(0,10), notes: "" }]); haptic("light"); };
+  const updateLot = (id, key, val) => setLots(ls => ls.map(l => {
+    if (l.id !== id) return l;
+    const updated = { ...l, [key]: val };
+    if (key === "price" || key === "quantity") {
+      const p = parseFloat(key === "price" ? val : l.price);
+      const q = parseFloat(key === "quantity" ? val : l.quantity);
+      updated.amount = (p > 0 && q > 0) ? String(Math.round(p * q * 100) / 100) : "";
+    } else if (key === "amount") {
+      const p = parseFloat(l.price);
+      const a = parseFloat(val);
+      if (p > 0 && a > 0) updated.quantity = String(Math.round(a / p * 10000) / 10000);
+    }
+    return updated;
+  }));
+  const addLot    = () => { setLots(ls => [...ls, { id: uid(), price: "", quantity: "", date: new Date().toISOString().slice(0,10), notes: "", amount: "" }]); haptic("light"); };
   const removeLot = id => setLots(ls => ls.length > 1 ? ls.filter(l => l.id !== id) : ls);
 
   const avgPrice  = calcAvgBuyPrice(lots);
@@ -161,9 +177,18 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
                   <input style={{ ...inputStyle, fontSize: 13 }} type="number" value={lot.quantity} onChange={e => updateLot(lot.id, "quantity", e.target.value)} placeholder="0" />
                 </div>
               </div>
-              <div style={{ marginTop: 8 }}>
-                <label style={{ ...labelStyle, fontSize: 10 }}>Vétel dátuma</label>
-                <input style={{ ...inputStyle, fontSize: 13, colorScheme: "dark" }} type="date" value={lot.date} onChange={e => updateLot(lot.id, "date", e.target.value)} />
+              <div style={grid2}>
+                <div style={{ marginTop: 8 }}>
+                  <label style={{ ...labelStyle, fontSize: 10 }}>Befektetett ({form.currency})</label>
+                  <input style={{ ...inputStyle, fontSize: 13, background: lot.amount ? "rgba(110,231,183,0.06)" : T.bg.inset }}
+                    type="number" value={lot.amount}
+                    onChange={e => updateLot(lot.id, "amount", e.target.value)}
+                    placeholder="ár × db" />
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <label style={{ ...labelStyle, fontSize: 10 }}>Vétel dátuma</label>
+                  <input style={{ ...inputStyle, fontSize: 13, colorScheme: "dark" }} type="date" value={lot.date} onChange={e => updateLot(lot.id, "date", e.target.value)} />
+                </div>
               </div>
             </div>
           ))}
