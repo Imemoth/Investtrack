@@ -49,7 +49,7 @@ export async function fetchYahooPrice(ticker) {
   throw lastError;
 }
 
-async function fetchFxRates() {
+export async function fetchFxRates() {
   const pairs = ["USDHUF=X", "EURHUF=X", "GBPHUF=X"];
   const rates  = { USD: 1, EUR: 1, GBP: 1, HUF: 1 };
   for (const pair of pairs) {
