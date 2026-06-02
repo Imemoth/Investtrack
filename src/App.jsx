@@ -59,6 +59,7 @@ export default function App() {
   const [confirmDelete,   setConfirmDelete]   = useState(null);
   const [refreshing,      setRefreshing]      = useState(false);
   const [refreshProgress, setRefreshProgress] = useState(null);
+  const [refreshingFx,    setRefreshingFx]    = useState(false);
   const [showLog,         setShowLog]         = useState(false);
   const [chartMode,       setChartMode]       = useState("category");
   const [detailInv,       setDetailInv]       = useState(null);
@@ -271,9 +272,8 @@ export default function App() {
   };
 
   const handleRefreshFx = async () => {
-    if (refreshing) return;
-    setRefreshProgress("Devizaárfolyamok...");
-    setRefreshing(true);
+    if (refreshing || refreshingFx) return;
+    setRefreshingFx(true);
     try {
       const newFx = await fetchFxRates();
       if (Object.values(newFx).some(r => r > 1)) {
@@ -286,8 +286,7 @@ export default function App() {
     } catch (e) {
       showToast("❌ Devizaárfolyam: " + e.message, "error");
     } finally {
-      setRefreshing(false);
-      setRefreshProgress(null);
+      setRefreshingFx(false);
     }
   };
 
@@ -632,6 +631,7 @@ export default function App() {
         onToggleTheme={toggleTheme}
         fxRates={fxRates}
         onRefreshFx={handleRefreshFx}
+        refreshingFx={refreshingFx}
       />
 
       <main style={S.main}>
