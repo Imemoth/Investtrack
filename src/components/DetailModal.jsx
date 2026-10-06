@@ -57,7 +57,8 @@ export function DetailModal({ inv, closedPositions = [], onClose, onEdit }) {
   const { value, abs, pct } = calcPnL(inv);
   const up = abs >= 0;
   const quoteStatus = getQuoteStatus(inv);
-  const annualDividend = inv.currentPrice > 0 && inv.dividendYield
+  const quoteUnavailable = quoteStatus === "missing" || quoteStatus === "unsupported";
+  const annualDividend = !quoteUnavailable && inv.currentPrice > 0 && inv.dividendYield
     ? (parseFloat(inv.dividendYield) / 100) * inv.currentPrice * (inv.quantity || calcTotalQty(inv.lots||[])) : 0;
 
   const TABS = [
@@ -95,10 +96,12 @@ export function DetailModal({ inv, closedPositions = [], onClose, onEdit }) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
             {[
               { l: "Piaci érték",
-                v: quoteStatus === "missing" ? "⚠️ Frissítés szükséges" : fmtNum(value, 0) + " " + inv.currency,
-                c: quoteStatus === "missing" ? "#FCA5A5" : "#E6EDF3" },
-              { l: "P&L",         v: quoteStatus === "missing" ? "—" : (up?"+":"") + fmtNum(pct,2) + "%",      c: up ? "#6EE7B7" : "#FCA5A5" },
-              { l: "P&L összeg",  v: quoteStatus === "missing" ? "—" : (up?"+":"") + fmtNum(abs,0) + " " + inv.currency, c: up ? "#6EE7B7" : "#FCA5A5" },
+                v: quoteUnavailable
+                  ? (quoteStatus === "unsupported" ? "⚠️ Nem támogatott tőzsde" : "⚠️ Frissítés szükséges")
+                  : fmtNum(value, 0) + " " + inv.currency,
+                c: quoteUnavailable ? "#FCA5A5" : "#E6EDF3" },
+              { l: "P&L",         v: quoteUnavailable ? "—" : (up?"+":"") + fmtNum(pct,2) + "%",      c: quoteUnavailable ? "#8B949E" : (up ? "#6EE7B7" : "#FCA5A5") },
+              { l: "P&L összeg",  v: quoteUnavailable ? "—" : (up?"+":"") + fmtNum(abs,0) + " " + inv.currency, c: quoteUnavailable ? "#8B949E" : (up ? "#6EE7B7" : "#FCA5A5") },
             ].map((s, i) => (
               <div key={i} style={{ background: "#0D1117", borderRadius: 8, padding: "8px 10px" }}>
                 <div style={{ fontSize: 9, color: "#8B949E", textTransform: "uppercase", marginBottom: 3 }}>{s.l}</div>
@@ -130,7 +133,7 @@ export function DetailModal({ inv, closedPositions = [], onClose, onEdit }) {
                 ["Átlag vételár",  fmtNum(calcAvgBuyPrice(inv.lots||[]), 0) + " " + inv.currency],
                 ["Összmennyiség",  fmtNum(calcTotalQty(inv.lots||[]), 4) + " db"],
                 ["Befektetett",    fmtNum(calcCostBasis(inv.lots||[]), 0) + " " + inv.currency],
-                ["Jelenlegi ár",   fmtNum(inv.currentPrice, 0) + " " + inv.currency],
+                ["Jelenlegi ár",   quoteUnavailable ? "—" : fmtNum(inv.currentPrice, 2) + " " + inv.currency],
                 ["Célár",          inv.targetPrice ? fmtNum(+inv.targetPrice, 0) + " " + inv.currency : "Nincs beállítva"],
                 ["Célár távolság", inv.targetPrice && inv.currentPrice > 0
                   ? ((+inv.targetPrice - inv.currentPrice) / inv.currentPrice * 100).toFixed(2) + "%" : "—"],
