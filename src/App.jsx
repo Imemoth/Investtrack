@@ -220,7 +220,7 @@ export default function App() {
             savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
             if (snapKey) localStorage.setItem(snapKey, today);
           } else {
-            console.warn("Snapshot kihagyva: hiányzó quote vagy FX árfolyam.");
+            console.warn("Snapshot kihagyva: hiányzó quote/FX vagy becsült historical cost basis.");
           }
         }
       } catch (err) {
@@ -308,7 +308,7 @@ export default function App() {
           const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
           savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
         } else {
-          console.warn("Snapshot kihagyva: hiányzó quote vagy FX árfolyam.");
+          console.warn("Snapshot kihagyva: hiányzó quote/FX vagy becsült historical cost basis.");
         }
         upsertInvestments(updated).catch(e => console.warn("Árfrissítés szinkron hiba:", e.message));
       }
@@ -381,7 +381,7 @@ export default function App() {
           const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
           savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
         } else {
-          console.warn("Snapshot kihagyva: hiányzó quote vagy FX árfolyam.");
+          console.warn("Snapshot kihagyva: hiányzó quote/FX vagy becsült historical cost basis.");
         }
 
         const updInv = updated.find(i => i.id === inv.id);
