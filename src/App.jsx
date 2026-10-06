@@ -3,7 +3,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
 import { fmtNum, fmtCurrency, calcPnL, calcPnLHuf, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll, uid } from "./utils";
 import { refreshAllPrices, fetchYahooPrice, fetchFxRates } from "./services/priceService";
-import { parseXTBFile } from "./services/xtbImporter";
+import { parseXTBFile, getExpectedCurrency, isSupportedExchange } from "./services/xtbImporter";
 import {
   supabase, onAuthStateChange, signOut,
   fetchInvestments, upsertInvestment, upsertInvestments, deleteInvestment, deleteAllInvestments,
@@ -199,12 +199,18 @@ export default function App() {
         const today = new Date().toISOString().slice(0, 10);
         const lastSnapDate = localStorage.getItem("investtrack_last_snapshot_date");
         const migratedInvs = migrateAll(invs);
-        if (lastSnapDate !== today && migratedInvs.some(i => (i.currentPrice ?? 0) > 0)) {
-          const cachedFx  = JSON.parse(localStorage.getItem("investtrack_fx") || "{}");
-          const snapValue = migratedInvs.reduce((s, i) => s + calcPnLHuf(i, cachedFx).valueHuf, 0);
-          const snapCost  = migratedInvs.reduce((s, i) => s + calcPnLHuf(i, cachedFx).costHuf, 0);
-          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
-          localStorage.setItem("investtrack_last_snapshot_date", today);
+        if (lastSnapDate !== today && migratedInvs.length > 0) {
+          const cachedFx = JSON.parse(localStorage.getItem("investtrack_fx") || "{}");
+          const snapRows = migratedInvs.map(i => calcPnLHuf(i, cachedFx));
+          const allValuable = snapRows.every(p => p.valuationAvailable);
+          if (allValuable) {
+            const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
+            const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
+            savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+            localStorage.setItem("investtrack_last_snapshot_date", today);
+          } else {
+            console.warn("Snapshot kihagyva: hiányzó quote vagy FX árfolyam.");
+          }
         }
       } catch (err) {
         showToast("Adatbetöltés hiba: " + err.message, "error");
@@ -256,9 +262,14 @@ export default function App() {
       setInvestments(updated);
       // Portfólió snapshot + Supabase szinkron
       if (user) {
-        const snapValue = updated.reduce((s, i) => s + calcPnLHuf(i, newFxRates).valueHuf, 0);
-        const snapCost  = updated.reduce((s, i) => s + calcPnLHuf(i, newFxRates).costHuf, 0);
-        savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        const snapRows = updated.map(i => calcPnLHuf(i, newFxRates));
+        if (snapRows.every(p => p.valuationAvailable)) {
+          const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
+          const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
+          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        } else {
+          console.warn("Snapshot kihagyva: hiányzó quote vagy FX árfolyam.");
+        }
         upsertInvestments(updated).catch(e => console.warn("Árfrissítés szinkron hiba:", e.message));
       }
       const ok = results.size, fail = errors.length;
@@ -295,31 +306,44 @@ export default function App() {
 
   const handleRefreshSingle = async (inv) => {
     if (refreshingId || !inv.ticker?.trim()) return;
-    // Ha HUF-os részvény és nincs még érvényes cached FX rate, teljes frissítés kell
-    const needsFx = inv.currency === "HUF";
-    const hasCachedFx = needsFx ? Object.values(fxRates).some(r => r > 1) : true;
-    if (!hasCachedFx) {
-      showToast("Először végezz teljes árfolyamfrissítést a devizaárfolyamokhoz!", "info");
+    if (inv.xtbTicker && !isSupportedExchange(inv.xtbTicker)) {
+      showToast(`❌ Nem támogatott XTB tőzsde: ${inv.xtbTicker}`, "error");
       return;
     }
+
     setRefreshingId(inv.id);
     try {
-      const data = await fetchYahooPrice(inv.ticker);
+      const expectedCurrency = inv.xtbTicker
+        ? getExpectedCurrency(inv.xtbTicker)
+        : (inv.currency === "HUF" ? null : inv.currency);
+      const data = await fetchYahooPrice(inv.ticker, expectedCurrency);
+
       let finalPrice = data.price;
-      if (needsFx && data.currency && data.currency !== "HUF") {
-        const yahooFx = data.currency === "GBX" ? (fxRates.GBP || 1) / 100 : (fxRates[data.currency] || 1);
+      if (inv.currency === "HUF" && data.currency && data.currency !== "HUF") {
+        const yahooFx = fxRates[data.currency];
+        if (!Number.isFinite(yahooFx) || yahooFx <= 0) {
+          throw new Error(`Nincs ${data.currency}/HUF árfolyam. Előbb frissítsd a devizaárfolyamokat.`);
+        }
         finalPrice = data.price * yahooFx;
       }
+
       const refreshedAt = new Date().toISOString();
       const updated = investments.map(i => i.id === inv.id
         ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: refreshedAt, quoteStatus: "fresh" }
         : i
       );
       setInvestments(updated);
+
       if (user) {
-        const snapValue = updated.reduce((s, i) => s + calcPnLHuf(i, fxRates).valueHuf, 0);
-        const snapCost  = updated.reduce((s, i) => s + calcPnLHuf(i, fxRates).costHuf, 0);
-        savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        const snapRows = updated.map(i => calcPnLHuf(i, fxRates));
+        if (snapRows.every(p => p.valuationAvailable)) {
+          const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
+          const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
+          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        } else {
+          console.warn("Snapshot kihagyva: hiányzó quote vagy FX árfolyam.");
+        }
+
         const updInv = updated.find(i => i.id === inv.id);
         if (updInv) upsertInvestment(updInv).catch(e => console.warn("Egyedi frissítés szinkron:", e.message));
       }
