@@ -11,7 +11,7 @@ function fmtRelativeTime(isoStr) {
   return new Date(isoStr).toLocaleDateString("hu-HU");
 }
 
-export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, valuationAvailable = true, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete, onRefresh, isRefreshing }) {
+export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, valuationAvailable = true, hasEstimatedCost = false, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete, onRefresh, isRefreshing }) {
   const [open, setOpen] = useState(false);
   const unavailableQuote = quoteStatus === "missing" || quoteStatus === "unsupported" || !valuationAvailable;
   const color = unavailableQuote ? theme.text.tertiary : (up ? theme.accent.green : theme.accent.red);
@@ -44,7 +44,7 @@ export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, valuationAva
             ? <span style={{ color:"#FCA5A5", fontSize:10 }}>
                 {quoteStatus === "unsupported" ? "⚠️ nem támogatott" : "⚠️ frissíts"}
               </span>
-            : <>{up?"+":""}{fmtNum(pct, 2)}%</>}
+            : <>{hasEstimatedCost ? "≈ " : ""}{up?"+":""}{fmtNum(pct, 2)}%</>}
         </div>
         <span style={{ color:theme.text.tertiary, fontSize:10 }}>{open?"▲":"▼"}</span>
       </div>
