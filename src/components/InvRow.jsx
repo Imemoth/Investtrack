@@ -40,8 +40,10 @@ export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, avgBuyPrice,
           {fmtNum(value, 0)}
         </div>
         <div style={{ fontSize:13, fontWeight:700, color, fontFamily:"'DM Mono',monospace", textAlign:"right", minWidth:60 }}>
-          {quoteStatus === "missing"
-            ? <span style={{ color:"#FCA5A5", fontSize:10 }}>⚠️ frissíts</span>
+          {unavailableQuote
+            ? <span style={{ color:"#FCA5A5", fontSize:10 }}>
+                {quoteStatus === "unsupported" ? "⚠️ nem támogatott" : "⚠️ frissíts"}
+              </span>
             : <>{up?"+":""}{fmtNum(pct, 2)}%</>}
         </div>
         <span style={{ color:theme.text.tertiary, fontSize:10 }}>{open?"▲":"▼"}</span>
