@@ -9,7 +9,7 @@ import {
   fetchInvestments, upsertInvestment, upsertInvestments, deleteInvestment, deleteAllInvestments,
   fetchClosedPositions, upsertClosedPositions, deleteAllClosedPositions,
   fetchPendingOrders, upsertPendingOrder, deletePendingOrder,
-  savePortfolioSnapshot, migrateFromLocalStorage,
+  savePortfolioSnapshot,
 } from "./services/supabase";
 import { AuthScreen } from "./components/AuthScreen";
 import { THEME as T, LIGHT_THEME, glassCard, haptic, KEYFRAMES } from "./design-system";
@@ -30,22 +30,20 @@ import { PortfolioTab } from "./components/PortfolioTab";
 import { DashboardTab } from "./components/DashboardTab";
 import { AppModals } from "./components/AppModals";
 
+const scopedStorageKey = (base, userId) => userId ? `${base}:${userId}` : null;
+
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,            setUser]            = useState(undefined); // undefined = loading
   const [dbReady,         setDbReady]         = useState(false);
-  const syncRef = useRef(false); // megakadályozza a dupla szinkronizálást
+  // Store the user id whose DB state is currently loaded. This prevents duplicate
+  // token-refresh loads without leaking one account's state into another account.
+  const syncRef = useRef(null);
   // ── State ──
-  const [investments,     setInvestments]     = useState(() => {
-    try {
-      const raw = JSON.parse(localStorage.getItem("investtrack_v2") || localStorage.getItem("investtrack_v1") || "[]");
-      return migrateAll(raw);
-    } catch { return []; }
-  });
-  const [closedPositions, setClosedPositions] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("investtrack_closed") || "[]"); }
-    catch { return []; }
-  });
+  // Authenticated DB is the source of truth. Do not hydrate financial data from
+  // unscoped legacy localStorage before the active user is known.
+  const [investments,     setInvestments]     = useState([]);
+  const [closedPositions, setClosedPositions] = useState([]);
   const [showClosed,      setShowClosed]      = useState(false);
   const [sellInv,         setSellInv]         = useState(null);
   const [modal,           setModal]           = useState(null);
@@ -76,10 +74,7 @@ export default function App() {
   const [importConfirm,   setImportConfirm]   = useState(null); // { type:"csv"|"xtb", parsed, closed?, msg }
   const [pendingOrders,   setPendingOrders]   = useState([]);
   const [isDark,          setIsDark]          = useState(() => localStorage.getItem("investtrack_theme") !== "light");
-  const [lastRefreshed,   setLastRefreshed]   = useState(() => {
-    const saved = localStorage.getItem("investtrack_last_refresh");
-    return saved ? new Date(saved) : null;
-  });
+  const [lastRefreshed,   setLastRefreshed]   = useState(null);
   const [isBooting,       setIsBooting]       = useState(true);
   const [refreshingId,    setRefreshingId]    = useState(null);
 
@@ -163,6 +158,15 @@ export default function App() {
         setUser(session?.user ?? null);
         window.history.replaceState(null, "", window.location.pathname);
       } else if (event === "SIGNED_OUT") {
+        syncRef.current = null;
+        setInvestments([]);
+        setClosedPositions([]);
+        setPendingOrders([]);
+        setDbReady(false);
+        setLastRefreshed(null);
+        setDetailInv(null);
+        setEditing(null);
+        setModal(null);
         setUser(null);
       } else if (event === "USER_UPDATED") {
         setUser(session?.user ?? null);
@@ -174,60 +178,96 @@ export default function App() {
 
   // ── Adatok betöltése bejelentkezés után ──────────────────────────────────
   useEffect(() => {
-    if (!user || syncRef.current) return;
-    syncRef.current = true;
+    if (!user || syncRef.current === user.id) return;
+    const loadingUserId = user.id;
+    syncRef.current = loadingUserId;
+
     async function loadData() {
       try {
         setIsBooting(true);
-        // LocalStorage migráció ha van régi adat
-        const hasLocal = localStorage.getItem("investtrack_v2") || localStorage.getItem("investtrack_v1");
-        if (hasLocal) {
-          const parsed = JSON.parse(hasLocal || "[]");
-          if (parsed.length > 0) {
-            await migrateFromLocalStorage();
-            localStorage.removeItem("investtrack_v2"); localStorage.removeItem("investtrack_v1");
-            localStorage.removeItem("investtrack_closed"); localStorage.removeItem("investtrack_pending_v1");
-          }
-        }
-        const [invs, closed, pending] = await Promise.all([fetchInvestments(), fetchClosedPositions(), fetchPendingOrders()]);
-        setInvestments(migrateAll(invs));
+        setDbReady(false);
+
+        const [invs, closed, pending] = await Promise.all([
+          fetchInvestments(),
+          fetchClosedPositions(),
+          fetchPendingOrders(),
+        ]);
+
+        // Ignore a late response if another account became active in the meantime.
+        if (syncRef.current !== loadingUserId) return;
+
+        const migratedInvs = migrateAll(invs);
+        setInvestments(migratedInvs);
         setClosedPositions(closed);
         setPendingOrders(pending);
         setDbReady(true);
         setIsBooting(false);
-        // Napi egyszer automatikus snapshot mentés app betöltéskor
+
+        const refreshKey = scopedStorageKey("investtrack_last_refresh", loadingUserId);
+        const savedRefresh = refreshKey ? localStorage.getItem(refreshKey) : null;
+        setLastRefreshed(savedRefresh ? new Date(savedRefresh) : null);
+
+        // Napi egyszer automatikus snapshot mentés app betöltéskor.
         const today = new Date().toISOString().slice(0, 10);
-        const lastSnapDate = localStorage.getItem("investtrack_last_snapshot_date");
-        const migratedInvs = migrateAll(invs);
+        const snapKey = scopedStorageKey("investtrack_last_snapshot_date", loadingUserId);
+        const lastSnapDate = snapKey ? localStorage.getItem(snapKey) : null;
         if (lastSnapDate !== today && migratedInvs.length > 0) {
           const cachedFx = JSON.parse(localStorage.getItem("investtrack_fx") || "{}");
           const snapRows = migratedInvs.map(i => calcPnLHuf(i, cachedFx));
-          const allValuable = snapRows.every(p => p.valuationAvailable);
-          if (allValuable) {
+          if (snapRows.every(p => p.valuationAvailable)) {
             const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
             const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
             savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
-            localStorage.setItem("investtrack_last_snapshot_date", today);
+            if (snapKey) localStorage.setItem(snapKey, today);
           } else {
             console.warn("Snapshot kihagyva: hiányzó quote vagy FX árfolyam.");
           }
         }
       } catch (err) {
-        showToast("Adatbetöltés hiba: " + err.message, "error");
-        setIsBooting(false); setDbReady(true);
+        if (syncRef.current !== loadingUserId) return;
+
+        // User-scoped local backup is only a recovery fallback; never read another
+        // account's or the old unscoped portfolio automatically.
+        try {
+          const invKey = scopedStorageKey(STORAGE_KEY, loadingUserId);
+          const closedKey = scopedStorageKey("investtrack_closed", loadingUserId);
+          const pendingKey = scopedStorageKey("investtrack_pending_v1", loadingUserId);
+          const cachedInvs = JSON.parse(localStorage.getItem(invKey) || "[]");
+          const cachedClosed = JSON.parse(localStorage.getItem(closedKey) || "[]");
+          const cachedPending = JSON.parse(localStorage.getItem(pendingKey) || "[]");
+          if (cachedInvs.length || cachedClosed.length || cachedPending.length) {
+            setInvestments(migrateAll(cachedInvs));
+            setClosedPositions(cachedClosed);
+            setPendingOrders(cachedPending);
+            showToast("Supabase nem elérhető – saját helyi mentés betöltve.", "info");
+          } else {
+            showToast("Adatbetöltés hiba: " + err.message, "error");
+          }
+        } catch {
+          showToast("Adatbetöltés hiba: " + err.message, "error");
+        }
+        setIsBooting(false);
+        setDbReady(true);
       }
     }
     loadData();
   }, [user]);
 
-  // ── Persistence: localStorage backup ──────────────────────────────────────
+  // ── Persistence: user-scoped localStorage backup ─────────────────────────
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(investments));
-  }, [investments]);
+    if (!user || !dbReady) return;
+    localStorage.setItem(scopedStorageKey(STORAGE_KEY, user.id), JSON.stringify(investments));
+  }, [investments, user, dbReady]);
 
   useEffect(() => {
-    localStorage.setItem("investtrack_closed", JSON.stringify(closedPositions));
-  }, [closedPositions]);
+    if (!user || !dbReady) return;
+    localStorage.setItem(scopedStorageKey("investtrack_closed", user.id), JSON.stringify(closedPositions));
+  }, [closedPositions, user, dbReady]);
+
+  useEffect(() => {
+    if (!user || !dbReady) return;
+    localStorage.setItem(scopedStorageKey("investtrack_pending_v1", user.id), JSON.stringify(pendingOrders));
+  }, [pendingOrders, user, dbReady]);
 
   // ── Price refresh ──
   const handleRefresh = async () => {
@@ -275,7 +315,7 @@ export default function App() {
       const ok = results.size, fail = errors.length;
       const now = new Date();
       setLastRefreshed(now);
-      localStorage.setItem("investtrack_last_refresh", now.toISOString());
+      if (user) localStorage.setItem(scopedStorageKey("investtrack_last_refresh", user.id), now.toISOString());
       showToast(fail > 0 ? `⚠️ ${ok} frissítve, ${fail} sikertelen: ${errors.join(", ")}` : `✓ ${ok} árfolyam frissítve!`, fail > 0 ? "info" : "success");
     } catch (e) {
       showToast(`❌ ${e.message}`, "error");
@@ -382,10 +422,13 @@ export default function App() {
     }
     setInvestments([]);
     setClosedPositions([]);
-    localStorage.removeItem("investtrack_v2");
-    localStorage.removeItem("investtrack_v1");
-    localStorage.removeItem("investtrack_closed");
-    localStorage.removeItem("investtrack_last_refresh");
+    if (user) {
+      localStorage.removeItem(scopedStorageKey(STORAGE_KEY, user.id));
+      localStorage.removeItem(scopedStorageKey("investtrack_closed", user.id));
+      localStorage.removeItem(scopedStorageKey("investtrack_pending_v1", user.id));
+      localStorage.removeItem(scopedStorageKey("investtrack_last_snapshot_date", user.id));
+      localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", user.id));
+    }
     setLastRefreshed(null);
     showToast("Portfólió törölve!", "info");
   };
@@ -488,7 +531,7 @@ export default function App() {
     setImportConfirm(null);
     if (type === "csv") {
       setInvestments(parsed);
-      localStorage.removeItem("investtrack_last_refresh");
+      if (user) localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", user.id));
       setLastRefreshed(null);
       setModal(null); setImportText("");
       showToast(`${parsed.length} befektetés importálva!`);
@@ -503,7 +546,7 @@ export default function App() {
       }
       setInvestments(parsed);
       setClosedPositions(closed);
-      localStorage.removeItem("investtrack_last_refresh");
+      if (user) localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", user.id));
       setLastRefreshed(null);
       setModal(null);
       showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció`);
