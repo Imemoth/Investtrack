@@ -13,7 +13,8 @@ function fmtRelativeTime(isoStr) {
 
 export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete, onRefresh, isRefreshing }) {
   const [open, setOpen] = useState(false);
-  const color = up ? theme.accent.green : theme.accent.red;
+  const unavailableQuote = quoteStatus === "missing" || quoteStatus === "unsupported";
+  const color = unavailableQuote ? theme.text.tertiary : (up ? theme.accent.green : theme.accent.red);
 
   return (
     <div style={{ borderBottom:`1px solid ${theme.border.subtle}` }}>
@@ -52,7 +53,7 @@ export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, avgBuyPrice,
             {[
               ["Vételár",    fmtNum(avgBuyPrice, 2) + " " + inv.currency],
               ["Mennyiség",  fmtNum(quantity, quantity%1===0 ? 0 : 4) + " db"],
-              ["P&L (HUF)",  quoteStatus === "missing" ? "— frissítés kell" : (pnlHuf >= 0?"+":"")+fmtNum(pnlHuf,0)+" Ft"],
+              ["P&L (HUF)",  unavailableQuote ? (quoteStatus === "unsupported" ? "— nem támogatott tőzsde" : "— frissítés kell") : (pnlHuf >= 0?"+":"")+fmtNum(pnlHuf,0)+" Ft"],
             ].map(([l,v]) => (
               <div key={l}>
                 <div style={{ fontSize:9, color:theme.text.tertiary, textTransform:"uppercase", marginBottom:2 }}>{l}</div>
