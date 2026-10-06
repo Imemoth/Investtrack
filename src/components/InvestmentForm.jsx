@@ -13,13 +13,21 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
   const getFx = (currency) => currency === "HUF" ? 1 : (parseFloat(fxRates[currency]) || 0);
 
   const blankLot = () => ({ id: uid(), price: "", quantity: "", date: new Date().toISOString().slice(0, 10), notes: "", amount: "" });
+  const historicalHufAmount = (lot) => {
+    const qty = parseFloat(lot.quantity) || 0;
+    const price = parseFloat(lot.price) || 0;
+    if (Number.isFinite(+lot.hufTotal) && +lot.hufTotal > 0) return +lot.hufTotal;
+    if (Number.isFinite(+lot.hufPerShare) && +lot.hufPerShare > 0 && qty > 0) return +lot.hufPerShare * qty;
+    if (Number.isFinite(+lot.impliedFxRate) && +lot.impliedFxRate > 0 && price > 0 && qty > 0) return price * qty * (+lot.impliedFxRate);
+    return 0;
+  };
   const initLots = initial?.lots?.length > 0
     ? initial.lots.map(l => ({
         ...l,
         price: String(l.price ?? ""),
         quantity: String(l.quantity ?? ""),
-        // Initialize amount from saved hufTotal (immutable historical HUF cost) — not current FX
-        amount: l.hufTotal != null && l.hufTotal > 0 ? String(Math.round(l.hufTotal)) : "",
+        // Initialize from authoritative historical HUF metadata — never today's FX.
+        amount: historicalHufAmount(l) > 0 ? String(Math.round(historicalHufAmount(l))) : "",
       }))
     : initial?.buyPrice
       ? [{ id: uid(), price: String(initial.buyPrice), quantity: String(initial.quantity || ""), date: initial.buyDate || "", notes: "", amount: "" }]
