@@ -89,40 +89,68 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
       ticker:       inv.ticker,
       sellPrice:    price,
       quantity:     qty,
-      fifoHufCost:  fifo.fifoHufCost,
-      realizedPnL:  fifo.pnlNative,  // natív deviza (kompatibilitás)
-      pnlHuf:       fifo.pnlHuf,     // historikus HUF P&L
-      currency:     inv.currency,
+      fifoHufCost:   fifo.fifoHufCost,
+      fifoCostNative: fifo.fifoCostNative,
+      proceedsHuf:    fifo.proceedsHuf,
+      realizedPnL:    fifo.pnlNative,  // natív deviza (kompatibilitás)
+      pnlHuf:         fifo.pnlHuf,     // historikus HUF P&L
+      currency:       inv.currency,
       date:         sellDate,
       notes,
     };
 
-    // Lezárt pozíció rekord (full close esetén)
+    // Lezárt pozíció rekord (full close esetén).
+    // A korábbi részleges eladásokat is bele kell görgetni, különben a pozíció
+    // törlésekor azok realizált HUF P&L-je elveszne.
     let closedPosition = null;
     if (fullyClose) {
-      const oldestDate = lots.map(l => l.date).filter(Boolean).sort()[0] || "";
+      const allSales = [...(inv.sales || []), sale];
+      const totalVolume = allSales.reduce((sum, s) => sum + (parseFloat(s.quantity) || 0), 0);
+      const totalPurchaseHuf = allSales.reduce((sum, s) => sum + (parseFloat(s.fifoHufCost) || 0), 0);
+      const totalSaleHuf = allSales.reduce((sum, s) => {
+        if (Number.isFinite(+s.proceedsHuf)) return sum + (+s.proceedsHuf);
+        if (Number.isFinite(+s.pnlHuf)) {
+          return sum + (parseFloat(s.fifoHufCost) || 0) + (+s.pnlHuf);
+        }
+        return sum;
+      }, 0);
+      const totalPnlHuf = allSales.reduce((sum, s) => sum + (Number.isFinite(+s.pnlHuf) ? +s.pnlHuf : 0), 0);
+      const totalNativeProceeds = allSales.reduce(
+        (sum, s) => sum + (parseFloat(s.sellPrice) || 0) * (parseFloat(s.quantity) || 0),
+        0,
+      );
+      const totalNativeCost = allSales.reduce((sum, s) => {
+        if (Number.isFinite(+s.fifoCostNative)) return sum + (+s.fifoCostNative);
+        const proceedsNative = (parseFloat(s.sellPrice) || 0) * (parseFloat(s.quantity) || 0);
+        return sum + proceedsNative - (parseFloat(s.realizedPnL) || 0);
+      }, 0);
+
+      const oldestDate = lots.map(l => l.date).filter(Boolean).sort()[0] || inv.buyDate || "";
+      const avgOpenPrice = totalVolume > 0 ? totalNativeCost / totalVolume : calcAvgBuyPrice(lots);
+      const avgClosePrice = totalVolume > 0 ? totalNativeProceeds / totalVolume : price;
+
       closedPosition = {
-        id:           uid(),
-        name:         inv.name,
-        ticker:       inv.ticker,
-        xtbTicker:    inv.xtbTicker || null,
-        category:     inv.category,
-        currency:     inv.currency,
-        closed:       true,
-        volume:       qty,
-        openPrice:    calcAvgBuyPrice(lots),
-        closePrice:   price,
-        openUsdPrice: calcAvgBuyPrice(lots), // backward compat field
-        closeUsdPrice: price,
-        openDate:     oldestDate,
-        closeDate:    sellDate,
-        purchaseHuf:  fifo.fifoHufCost,
-        saleHuf:      fifo.proceedsHuf,
-        hufOpenPx:    qty > 0 ? Math.round(fifo.fifoHufCost / qty) : 0,
-        hufClosePx:   qty > 0 ? Math.round(fifo.proceedsHuf / qty) : 0,
-        pnl:          fifo.pnlHuf,
-        pnlPct:       fifo.pnlPct,
-        product:      "",
+        id:            uid(),
+        name:          inv.name,
+        ticker:        inv.ticker,
+        xtbTicker:     inv.xtbTicker || null,
+        category:      inv.category,
+        currency:      inv.currency,
+        closed:        true,
+        volume:        totalVolume,
+        openPrice:     avgOpenPrice,
+        closePrice:    avgClosePrice,
+        openUsdPrice:  avgOpenPrice, // backward compat field
+        closeUsdPrice: avgClosePrice,
+        openDate:      oldestDate,
+        closeDate:     sellDate,
+        purchaseHuf:   Math.round(totalPurchaseHuf),
+        saleHuf:       Math.round(totalSaleHuf),
+        hufOpenPx:     totalVolume > 0 ? Math.round(totalPurchaseHuf / totalVolume) : 0,
+        hufClosePx:    totalVolume > 0 ? Math.round(totalSaleHuf / totalVolume) : 0,
+        pnl:           Math.round(totalPnlHuf),
+        pnlPct:        totalPurchaseHuf > 0 ? (totalPnlHuf / totalPurchaseHuf) * 100 : 0,
+        product:       "",
       };
     }
 
