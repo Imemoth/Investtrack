@@ -146,12 +146,25 @@ export function getQuoteStatus(inv) {
 // Lot HUF bekerülési ár kiszámítása mentéskor
 // Ha a felhasználó megadott Ft összeget (amount) → hufTotal = amount
 // Ha nincs amount → becsülés aktuális fxRate-tel
-export function lotWithHufTotal(lot, fxRate = 1) {
+export function lotWithHufTotal(lot, fxRate = 0) {
   const price = parseFloat(lot.price) || 0;
   const qty   = parseFloat(lot.quantity) || 0;
   const amt   = parseFloat(lot.amount);
-  const hufTotal = (isFinite(amt) && amt > 0) ? amt : Math.round(price * qty * fxRate);
-  const { amount: _ignored, ...rest } = lot; // amount csak form-state, nem persistálódik
+  const existingHufTotal = parseFloat(lot.hufTotal);
+
+  let hufTotal;
+  if (Number.isFinite(amt) && amt > 0) {
+    // Explicit form amount wins.
+    hufTotal = amt;
+  } else if (!lot._hufStale && Number.isFinite(existingHufTotal) && existingHufTotal > 0) {
+    // Untouched existing lot: preserve immutable historical cost.
+    hufTotal = existingHufTotal;
+  } else if (Number.isFinite(fxRate) && fxRate > 0 && price > 0 && qty > 0) {
+    // New/edited lot may be estimated only when a real FX rate exists.
+    hufTotal = Math.round(price * qty * fxRate);
+  }
+
+  const { amount: _ignored, _hufStale: _stale, ...rest } = lot;
   return { ...rest, price, quantity: qty, hufTotal: hufTotal || undefined };
 }
 
