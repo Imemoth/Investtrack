@@ -32,10 +32,18 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
       const lotQty = parseFloat(lot.quantity) || 0;
       const consume = Math.min(lotQty, remaining);
 
-      // Historikus HUF cost: lot.hufTotal ha van (XTB-import), egyébként becslés aktuális FX-szel
-      const lotHufPerShare = (lot.hufTotal != null && lot.hufTotal > 0 && lotQty > 0)
-        ? lot.hufTotal / lotQty
-        : (parseFloat(lot.price) || 0) * fxRate;
+      // Historikus HUF cost ugyanazzal a prioritási lánccal, mint calcPnLHuf:
+      // hufTotal → hufPerShare → impliedFxRate → current FX becslés.
+      let lotHufPerShare;
+      if (lot.hufTotal != null && lot.hufTotal > 0 && lotQty > 0) {
+        lotHufPerShare = lot.hufTotal / lotQty;
+      } else if (lot.hufPerShare != null && lot.hufPerShare > 0) {
+        lotHufPerShare = parseFloat(lot.hufPerShare);
+      } else if (lot.impliedFxRate != null && lot.impliedFxRate > 0) {
+        lotHufPerShare = (parseFloat(lot.price) || 0) * parseFloat(lot.impliedFxRate);
+      } else {
+        lotHufPerShare = (parseFloat(lot.price) || 0) * fxRate;
+      }
       fifoHufCost += consume * lotHufPerShare;
       fifoCostNative += consume * (parseFloat(lot.price) || 0);
 
