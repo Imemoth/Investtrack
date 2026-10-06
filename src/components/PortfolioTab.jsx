@@ -51,6 +51,7 @@ export function PortfolioTab({
               value={huf.valueHuf} abs={huf.pnlHuf} pct={huf.pnlPct}
               pnlHuf={huf.pnlHuf} quoteStatus={quoteStatus}
               valuationAvailable={huf.valuationAvailable}
+              hasEstimatedCost={huf.hasEstimatedCost}
               avgBuyPrice={avgBuyPrice} quantity={quantity} up={huf.pnlHuf>=0} theme={theme}
               onDetail={() => onDetail(inv)} onSell={() => onSell(inv)}
               onEdit={() => onEdit(inv)} onDelete={() => onDelete(inv)}
@@ -83,11 +84,11 @@ function StatCards({ theme, stats, investments, closedPositions, refreshLabel })
       sub: `${investments.length} pozíció${stats.valuationComplete ? "" : " · ⚠ részleges értékelés"}${stats.pendingTotal > 0 ? ` · +${fmtNum(stats.pendingTotal,0)} Ft függőben` : ""}`,
       color: theme.text.primary, glow: null },
     { label: "Befektetett tőke",
-      val: fmtCurrency(stats.totalCost, "HUF"),
-      sub: "Összes vételár", color: theme.text.secondary, glow: null },
+      val: (stats.costBasisComplete ? "" : "≈ ") + fmtCurrency(stats.totalCost, "HUF"),
+      sub: stats.costBasisComplete ? "Összes vételár" : "⚠ részben becsült cost basis", color: theme.text.secondary, glow: null },
     { label: "Papír nyereség",
       val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
-      sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%${stats.valuationComplete ? "" : " · részleges"}`,
+      sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%${stats.valuationComplete ? "" : " · részleges"}${stats.costBasisComplete ? "" : " · ≈ becsült cost"}`,
       color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red,
       glow: stats.totalPnL >= 0 ? "rgba(110,231,183,0.12)" : "rgba(252,165,165,0.12)" },
     { label: "💰 Realizált P&L",
