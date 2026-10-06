@@ -413,7 +413,8 @@ export default function App() {
     const pnlHufStr = sale.pnlHuf != null
       ? `${sale.pnlHuf >= 0 ? "+" : ""}${fmtNum(sale.pnlHuf, 0)} HUF`
       : `${sale.realizedPnL >= 0 ? "+" : ""}${fmtNum(sale.realizedPnL, 0)} ${sale.currency}`;
-    showToast(`Eladás rögzítve! Realizált P&L: ${pnlHufStr}`, sale.realizedPnL >= 0 ? "success" : "info");
+    const realizedForTone = sale.pnlHuf != null ? sale.pnlHuf : sale.realizedPnL;
+    showToast(`Eladás rögzítve! Realizált P&L: ${pnlHufStr}`, realizedForTone >= 0 ? "success" : "info");
   };
 
   // ── CRUD ──
