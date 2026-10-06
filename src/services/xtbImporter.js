@@ -2,11 +2,51 @@ import * as XLSX from "xlsx";
 import { uid } from "../utils";
 import { appLog } from "./logger";
 
-function resolveYahooTicker(xtbTicker = "") {
-  if (xtbTicker.endsWith(".US"))  return xtbTicker.replace(".US", "");
-  if (xtbTicker.endsWith(".NL"))  return xtbTicker.replace(".NL", "");
-  if (xtbTicker.endsWith(".UK"))  return xtbTicker.replace(".UK", ".L");
-  return xtbTicker;
+// XTB exchange suffix → Yahoo Finance suffix + expected currency
+// Based on XTB documentation and Yahoo Finance exchange codes
+const EXCHANGE_MAP = {
+  ".US": { yahoo: "",    currency: "USD" }, // US listings → strip suffix
+  ".NL": { yahoo: ".AS", currency: "EUR" }, // Amsterdam (Euronext NL)
+  ".FR": { yahoo: ".PA", currency: "EUR" }, // Paris (Euronext FR)
+  ".IT": { yahoo: ".MI", currency: "EUR" }, // Milan (Borsa Italiana)
+  ".DE": { yahoo: ".DE", currency: "EUR" }, // XETRA Frankfurt
+  ".ES": { yahoo: ".MC", currency: "EUR" }, // Madrid (BME)
+  ".BE": { yahoo: ".BR", currency: "EUR" }, // Brussels (Euronext BE)
+  ".AT": { yahoo: ".VI", currency: "EUR" }, // Vienna (Wiener Börse)
+  ".FI": { yahoo: ".HE", currency: "EUR" }, // Helsinki (Nasdaq Nordic FI)
+  ".PT": { yahoo: ".LS", currency: "EUR" }, // Lisbon (Euronext PT)
+  ".UK": { yahoo: ".L",  currency: "GBP" }, // London Stock Exchange (pence)
+  ".PL": { yahoo: ".WA", currency: "PLN" }, // Warsaw
+  ".SE": { yahoo: ".ST", currency: "SEK" }, // Stockholm (Nasdaq Nordic SE)
+  ".DK": { yahoo: ".CO", currency: "DKK" }, // Copenhagen (Nasdaq Nordic DK)
+  ".NO": { yahoo: ".OL", currency: "NOK" }, // Oslo Børs
+  ".HU": { yahoo: ".BD", currency: "HUF" }, // Budapest (BÉT)
+};
+
+export function resolveYahooTicker(xtbTicker = "") {
+  for (const [suffix, { yahoo }] of Object.entries(EXCHANGE_MAP)) {
+    if (xtbTicker.endsWith(suffix)) {
+      const base = xtbTicker.slice(0, -suffix.length);
+      return base + yahoo;
+    }
+  }
+  return xtbTicker; // no suffix or suffix not in map → pass through as-is
+}
+
+export function getExpectedCurrency(xtbTicker = "") {
+  for (const [suffix, { currency }] of Object.entries(EXCHANGE_MAP)) {
+    if (xtbTicker.endsWith(suffix)) return currency;
+  }
+  return "USD"; // no suffix / unknown → default to USD
+}
+
+// Returns false for tickers whose exchange suffix is present but not in EXCHANGE_MAP.
+// Tickers without any dot-suffix are treated as US listings (supported).
+export function isSupportedExchange(xtbTicker = "") {
+  const lastDot = xtbTicker.lastIndexOf(".");
+  if (lastDot < 0) return true; // no suffix → US listing, supported
+  const suffix = xtbTicker.slice(lastDot); // e.g. ".NL", ".CH"
+  return suffix in EXCHANGE_MAP;
 }
 
 function getCategory(xtbTicker = "", instrumentName = "", cat = "") {
@@ -14,15 +54,6 @@ function getCategory(xtbTicker = "", instrumentName = "", cat = "") {
   const name = (instrumentName || "").toUpperCase();
   if (name.includes("ETF") || name.includes("UCITS") || name.includes("DAX") || name.includes("NASDAQ 100")) return "ETF";
   return "Részvény";
-}
-
-// Detect currency from XTB ticker suffix
-function getCurrencyFromTicker(ticker = "") {
-  if (ticker.endsWith(".UK"))  return "GBP";
-  if (ticker.endsWith(".FR") || ticker.endsWith(".DE") || ticker.endsWith(".NL") ||
-      ticker.endsWith(".IT") || ticker.endsWith(".ES") || ticker.endsWith(".BE") ||
-      ticker.endsWith(".AT") || ticker.endsWith(".FI") || ticker.endsWith(".PT")) return "EUR";
-  return "USD";
 }
 
 function parseNum(val) {
@@ -55,7 +86,7 @@ export function parseXTBFile(arrayBuffer) {
   const hasOpenSheet = wb.SheetNames.includes("Open Positions");
 
   // ── A. Cash Operations → HUF amounts indexed by Position ID + dividends ──
-  const cashByPositionId   = new Map(); // positionId → { amount, ticker }
+  const cashByPositionId   = new Map(); // positionId → { amount, ticker, time }
   const dividendsByTicker  = new Map(); // ticker → HUF sum
   // For old-format fallback: open positions built from Cash Operations
   const openFromCash       = new Map(); // ticker → position obj
@@ -89,7 +120,7 @@ export function parseXTBFile(arrayBuffer) {
         cashByPositionId.set(String(positionId), { amount: amt, ticker, time });
       }
 
-      // Dividends (+ Withholding tax is already deducted in practice, include gross)
+      // Dividends
       if (type === "Dividend" && ticker) {
         dividendsByTicker.set(ticker, (dividendsByTicker.get(ticker) || 0) + amt);
       }
@@ -98,13 +129,16 @@ export function parseXTBFile(arrayBuffer) {
       if (!hasOpenSheet) {
         if (!ticker && !type) continue;
         if (!openFromCash.has(ticker)) {
+          const supported = isSupportedExchange(ticker);
           openFromCash.set(ticker, {
             id: uid(), name: instrument || ticker,
             ticker: resolveYahooTicker(ticker), xtbTicker: ticker,
             category: getCategory(ticker, instrument),
-            currency: "HUF", currentPrice: 0,
+            currency: getExpectedCurrency(ticker),
+            currentPrice: 0,
+            quoteStatus: supported ? "missing" : "unsupported",
             realizedPnL: 0, dividends: 0, sales: [], lots: [],
-            notes: `XTB · ${ticker}`,
+            notes: `XTB · ${ticker}${supported ? "" : " · ⚠️ ismeretlen tőzsde"}`,
           });
         }
         const pos = openFromCash.get(ticker);
@@ -112,12 +146,14 @@ export function parseXTBFile(arrayBuffer) {
           const p = parseComment(comment);
           if (p?.qty > 0) {
             const hufTotal    = Math.abs(amt);
-            const hufPerShare = Math.round((hufTotal / p.qty) * 100) / 100;
+            const hufPerShare = hufTotal > 0 && p.qty > 0 ? Math.round((hufTotal / p.qty) * 100) / 100 : 0;
             pos.lots.push({
               id: String(id) || uid(),
-              price: hufPerShare, quantity: p.qty,
+              price: p.price, quantity: p.qty,
               date: fmtD(time), datetime: fmtDT(time),
-              hufTotal, impliedFxRate: Math.round((hufPerShare / p.price) * 100) / 100,
+              hufTotal,
+              hufPerShare,
+              impliedFxRate: p.price > 0 && hufPerShare > 0 ? Math.round((hufPerShare / p.price) * 100) / 100 : 0,
             });
           }
         } else if (type === "Stock sell" && String(comment).includes("CLOSE")) {
@@ -154,7 +190,7 @@ export function parseXTBFile(arrayBuffer) {
 
     for (let i = hi + 1; i < rows.length; i++) {
       const r = rows[i];
-      const [, nameOrId, ticker, category, type, volume, value, currentPrice, openPrice, openTime] = r;
+      const [, nameOrId, ticker, category, type, volume, , currentPrice, openPrice, openTime] = r;
       if (!ticker) continue;
 
       const vol = parseNum(volume);
@@ -163,34 +199,41 @@ export function parseXTBFile(arrayBuffer) {
       if (!type) {
         // Summary row → instrument name for this ticker
         nameByTicker.set(ticker, { name: nameOrId, category });
-        currentByTicker.set(ticker, parseNum(currentPrice) || parseNum(openPrice));
+        // IMPORTANT: never fall back to openPrice — missing current price must stay missing
+        const curPx = parseNum(currentPrice);
+        currentByTicker.set(ticker, curPx > 0 ? curPx : 0);
       } else if (type === "BUY") {
         if (!lotsByTicker.has(ticker)) lotsByTicker.set(ticker, []);
         const posId      = String(nameOrId);
         const cashEntry  = cashByPositionId.get(posId);
-        // HUF cost: from Cash Operations if available, else current value (approximate)
-        const hufTotal   = cashEntry ? Math.abs(cashEntry.amount) : parseNum(value);
         const openPr     = parseNum(openPrice);
-        const hufPerShare = vol > 0 ? Math.round((hufTotal / vol) * 100) / 100 : 0;
+        // HUF cost: from Cash Operations if available, else approximate with current value
+        const hufTotal   = cashEntry ? Math.abs(cashEntry.amount) : 0;
+        const hufPerShare = hufTotal > 0 && vol > 0 ? Math.round((hufTotal / vol) * 100) / 100 : 0;
 
         lotsByTicker.get(ticker).push({
           id: posId || uid(),
           price: openPr, quantity: vol,
           date: fmtD(openTime), datetime: fmtDT(openTime),
-          hufTotal, hufPerShare,
-          impliedFxRate: openPr > 0 ? Math.round(hufPerShare / openPr * 100) / 100 : 0,
+          hufTotal: hufTotal > 0 ? hufTotal : undefined,
+          hufPerShare: hufPerShare > 0 ? hufPerShare : undefined,
+          impliedFxRate: openPr > 0 && hufPerShare > 0 ? Math.round(hufPerShare / openPr * 100) / 100 : undefined,
           notes: "",
         });
-        appLog.info(`OPEN: ${ticker} ${vol}db @${openPr} = ${hufTotal.toFixed(0)} HUF`);
+        appLog.info(`OPEN: ${ticker} ${vol}db @${openPr}${hufTotal > 0 ? ` = ${hufTotal.toFixed(0)} HUF` : " (HUF nincs)"}`);
       }
     }
 
     for (const [ticker, lots] of lotsByTicker) {
       if (!lots.length) continue;
       const info      = nameByTicker.get(ticker) || { name: ticker, category: "" };
-      const currency  = getCurrencyFromTicker(ticker);
+      const currency  = getExpectedCurrency(ticker);
       const divs      = dividendsByTicker.get(ticker) || 0;
-      const curPrice  = currentByTicker.get(ticker) || 0;
+      const curPrice  = currentByTicker.get(ticker) ?? 0;
+      const supported = isSupportedExchange(ticker);
+      const quoteStatus = !supported ? "unsupported"
+                        : curPrice > 0 ? "stale"
+                        : "missing";
 
       openResult.push({
         id: uid(),
@@ -199,8 +242,11 @@ export function parseXTBFile(arrayBuffer) {
         category: getCategory(ticker, info.name, info.category),
         currency,
         currentPrice: curPrice,
+        quoteStatus,
         realizedPnL: 0, sales: [], lots,
-        notes: `XTB · ${ticker}${divs > 0 ? ` · Osztalék: ${divs.toFixed(0)} HUF` : ""}`,
+        notes: `XTB · ${ticker}` +
+               (divs > 0 ? ` · Osztalék: ${divs.toFixed(0)} HUF` : "") +
+               (!supported ? " · ⚠️ ismeretlen tőzsde" : ""),
       });
     }
 
@@ -249,14 +295,19 @@ export function parseXTBFile(arrayBuffer) {
       const saleHuf     = parseNum(saleValue);
       if (!vol) continue;
 
+      const currency = getExpectedCurrency(ticker);
+
       closedPositions.push({
         id: uid(),
         name: instrument,
         ticker: resolveYahooTicker(ticker), xtbTicker: ticker,
         category:      getCategory(ticker, instrument, cat),
-        currency:      getCurrencyFromTicker(ticker),
+        currency,
         closed:        true,
         volume:        vol,
+        openPrice:     parseNum(openPrice),
+        closePrice:    parseNum(closePrice),
+        // Keep old field names for backward compat while adding currency-neutral names
         openUsdPrice:  parseNum(openPrice),
         closeUsdPrice: parseNum(closePrice),
         openTime:      fmtDT(openTime),
@@ -271,7 +322,7 @@ export function parseXTBFile(arrayBuffer) {
         pnlPct:        purchaseHuf > 0 ? (pnlVal / purchaseHuf) * 100 : 0,
         product:       product || "",
       });
-      appLog.info(`CLOSED: ${ticker} ${vol}db | $${parseNum(openPrice)} → $${parseNum(closePrice)} | P&L ${pnlVal.toFixed(0)} HUF`);
+      appLog.info(`CLOSED: ${ticker} ${vol}db | ${parseNum(openPrice)} → ${parseNum(closePrice)} | P&L ${pnlVal.toFixed(0)} HUF`);
     }
   }
 

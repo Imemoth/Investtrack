@@ -1,25 +1,81 @@
 // components/SellModal.jsx
-// Eladás rögzítése – FIFO cost basis, realizált P&L számítás
+// Eladás rögzítése – valódi FIFO cost basis, historikus HUF P&L számítás
 import { useState, useMemo } from "react";
-import { uid, calcAvgBuyPrice, calcTotalQty, fmtNum, fmtCurrency } from "../utils";
+import { uid, calcAvgBuyPrice, calcTotalQty, fmtNum } from "../utils";
 import { THEME as T, glassCard, haptic } from "../design-system";
 
-export function SellModal({ inv, onSell, onClose }) {
-  const avgBuy  = calcAvgBuyPrice(inv.lots || []);
-  const totalQ  = calcTotalQty(inv.lots || []);
+export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
+  const lots   = inv.lots || [];
+  const totalQ = calcTotalQty(lots);
+  const getFxRate = () => inv.currency === "HUF" ? 1 : (parseFloat(fxRates[inv.currency]) || 0);
+  const hasValidFx = inv.currency === "HUF" || getFxRate() > 0;
 
   const [sellPrice, setSellPrice] = useState(String(inv.currentPrice || ""));
   const [sellQty,   setSellQty]   = useState("");
   const [sellDate,  setSellDate]  = useState(new Date().toISOString().slice(0, 10));
   const [notes,     setNotes]     = useState("");
+  const [sellError, setSellError] = useState(null);
 
-  const qty       = parseFloat(sellQty) || 0;
-  const price     = parseFloat(sellPrice) || 0;
-  const proceeds  = price * qty;
-  const costBasis = avgBuy * qty;       // FIFO átlag alapú cost basis
-  const realPnL   = proceeds - costBasis;
-  const pct       = costBasis > 0 ? (realPnL / costBasis) * 100 : 0;
-  const isValid   = qty > 0 && qty <= totalQ && price > 0;
+  const qty   = parseFloat(sellQty) || 0;
+  const price = parseFloat(sellPrice) || 0;
+
+  // ── Valódi FIFO kalkuláció ────────────────────────────────────────────────
+  const fifo = useMemo(() => {
+    if (qty <= 0 || qty > totalQ) return null;
+    const fxRate = getFxRate();
+    let remaining = qty;
+    let fifoHufCost = 0;  // historikus HUF bekerülési ár az eladott lotokhoz
+    let fifoCostNative = 0; // natív deviza cost basis
+    const newLots = [];
+
+    for (const lot of lots) {
+      if (remaining <= 0) { newLots.push(lot); continue; }
+      const lotQty = parseFloat(lot.quantity) || 0;
+      const consume = Math.min(lotQty, remaining);
+
+      // Historikus HUF cost ugyanazzal a prioritási lánccal, mint calcPnLHuf:
+      // hufTotal → hufPerShare → impliedFxRate → current FX becslés.
+      let lotHufPerShare;
+      if (lot.hufTotal != null && lot.hufTotal > 0 && lotQty > 0) {
+        lotHufPerShare = lot.hufTotal / lotQty;
+      } else if (lot.hufPerShare != null && lot.hufPerShare > 0) {
+        lotHufPerShare = parseFloat(lot.hufPerShare);
+      } else if (lot.impliedFxRate != null && lot.impliedFxRate > 0) {
+        lotHufPerShare = (parseFloat(lot.price) || 0) * parseFloat(lot.impliedFxRate);
+      } else {
+        lotHufPerShare = (parseFloat(lot.price) || 0) * fxRate;
+      }
+      fifoHufCost += consume * lotHufPerShare;
+      fifoCostNative += consume * (parseFloat(lot.price) || 0);
+
+      if (lotQty <= remaining) {
+        remaining -= lotQty; // lot teljesen elfogy
+      } else {
+        // Részleges fogyasztás: arányosan csökkentjük hufTotal-t
+        const keptFraction = (lotQty - consume) / lotQty;
+        newLots.push({
+          ...lot,
+          quantity: lotQty - consume,
+          hufTotal: lot.hufTotal != null
+            ? Math.round(lot.hufTotal * keptFraction)
+            : undefined,
+          hufPerShare: lot.hufPerShare,
+        });
+        remaining = 0;
+      }
+    }
+
+    const proceedsNative = price * qty;
+    const fxRate2 = getFxRate();
+    const proceedsHuf = Math.round(proceedsNative * fxRate2);
+    const pnlNative = proceedsNative - fifoCostNative;
+    const pnlHuf = proceedsHuf - Math.round(fifoHufCost);
+    const pnlPct = fifoHufCost > 0 ? (pnlHuf / fifoHufCost) * 100 : 0;
+
+    return { newLots, fifoHufCost: Math.round(fifoHufCost), fifoCostNative, proceedsNative, proceedsHuf, pnlNative, pnlHuf, pnlPct };
+  }, [qty, price, lots, fxRates, inv.currency]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isValid = qty > 0 && qty <= totalQ && price > 0 && hasValidFx;
 
   const inputStyle = {
     width: "100%", background: T.bg.inset, border: `1px solid ${T.border.default}`,
@@ -29,23 +85,29 @@ export function SellModal({ inv, onSell, onClose }) {
   const labelStyle = { display: "block", fontSize: 11, color: T.text.secondary, marginBottom: 5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" };
 
   const handleSell = () => {
-    if (!isValid) return;
+    if (!isValid || !fifo) return;
     haptic("medium");
 
-    // Új lots: FIFO alapon csökkentjük a mennyiséget
-    let remaining = qty;
-    const newLots = [];
-    for (const lot of (inv.lots || [])) {
-      if (remaining <= 0) { newLots.push(lot); continue; }
-      if (lot.quantity <= remaining) {
-        remaining -= lot.quantity; // ez a lot teljesen elfogyott
-      } else {
-        newLots.push({ ...lot, quantity: lot.quantity - remaining });
-        remaining = 0;
-      }
-    }
+    const fullyClose = fifo.newLots.length === 0 || calcTotalQty(fifo.newLots) <= 0;
+    const fxRate = getFxRate();
 
-    // Eladás rekord
+    // Legacy partial sales created before HUF-realized fields existed must be
+    // exactly reconstructable before the final close deletes the open record.
+    const legacySaleHasExactHufPnl = s => {
+      if (Number.isFinite(+s.pnlHuf)) return true;
+      if (Number.isFinite(+s.proceedsHuf) && Number.isFinite(+s.fifoHufCost)) return true;
+      if (inv.currency === "HUF" && Number.isFinite(+s.realizedPnL)) return true;
+      if (inv.currency === "HUF" && Number.isFinite(+s.avgCostBasis) && Number.isFinite(+s.sellPrice)) return true;
+      return false;
+    };
+    const unreconstructableLegacySale = fullyClose &&
+      (inv.sales || []).some(s => !legacySaleHasExactHufPnl(s));
+    if (unreconstructableLegacySale) {
+      setSellError("Korábbi részleges eladás HUF eredménye nem rekonstruálható pontosan. Importáld újra az XTB előzményt vagy javítsd a legacy eladási adatot a teljes zárás előtt.");
+      return;
+    }
+    setSellError(null);
+
     const sale = {
       id:           uid(),
       invId:        inv.id,
@@ -53,24 +115,100 @@ export function SellModal({ inv, onSell, onClose }) {
       ticker:       inv.ticker,
       sellPrice:    price,
       quantity:     qty,
-      avgCostBasis: avgBuy,
-      realizedPnL:  realPnL,
-      currency:     inv.currency,
+      fifoHufCost:   fifo.fifoHufCost,
+      fifoCostNative: fifo.fifoCostNative,
+      proceedsHuf:    fifo.proceedsHuf,
+      realizedPnL:    fifo.pnlNative,  // natív deviza (kompatibilitás)
+      pnlHuf:         fifo.pnlHuf,     // historikus HUF P&L
+      currency:       inv.currency,
       date:         sellDate,
       notes,
     };
 
+    // Lezárt pozíció rekord (full close esetén).
+    // A korábbi részleges eladásokat is bele kell görgetni, különben a pozíció
+    // törlésekor azok realizált HUF P&L-je elveszne.
+    let closedPosition = null;
+    if (fullyClose) {
+      const allSales = [...(inv.sales || []), sale];
+      const saleQty = s => parseFloat(s.quantity ?? s.qty) || 0;
+      const saleCostHuf = s => {
+        if (Number.isFinite(+s.fifoHufCost)) return +s.fifoHufCost;
+        if (inv.currency === "HUF" && Number.isFinite(+s.avgCostBasis)) return (+s.avgCostBasis) * saleQty(s);
+        return null;
+      };
+      const saleProceedsHuf = s => {
+        if (Number.isFinite(+s.proceedsHuf)) return +s.proceedsHuf;
+        if (inv.currency === "HUF" && Number.isFinite(+s.sellPrice)) return (+s.sellPrice) * saleQty(s);
+        if (inv.currency === "HUF" && Number.isFinite(+s.proceeds)) return +s.proceeds;
+        const cost = saleCostHuf(s);
+        if (cost != null && Number.isFinite(+s.pnlHuf)) return cost + (+s.pnlHuf);
+        return null;
+      };
+      const salePnlHuf = s => {
+        if (Number.isFinite(+s.pnlHuf)) return +s.pnlHuf;
+        const cost = saleCostHuf(s);
+        const proceeds = saleProceedsHuf(s);
+        if (cost != null && proceeds != null) return proceeds - cost;
+        if (inv.currency === "HUF" && Number.isFinite(+s.realizedPnL)) return +s.realizedPnL;
+        return null;
+      };
+
+      const totalVolume = allSales.reduce((sum, s) => sum + saleQty(s), 0);
+      const totalPurchaseHuf = allSales.reduce((sum, s) => sum + (saleCostHuf(s) ?? 0), 0);
+      const totalSaleHuf = allSales.reduce((sum, s) => sum + (saleProceedsHuf(s) ?? 0), 0);
+      const totalPnlHuf = allSales.reduce((sum, s) => sum + (salePnlHuf(s) ?? 0), 0);
+      const totalNativeProceeds = allSales.reduce(
+        (sum, s) => sum + (parseFloat(s.sellPrice) || 0) * saleQty(s),
+        0,
+      );
+      const totalNativeCost = allSales.reduce((sum, s) => {
+        if (Number.isFinite(+s.fifoCostNative)) return sum + (+s.fifoCostNative);
+        const proceedsNative = (parseFloat(s.sellPrice) || 0) * saleQty(s);
+        return sum + proceedsNative - (parseFloat(s.realizedPnL) || 0);
+      }, 0);
+
+      const oldestDate = lots.map(l => l.date).filter(Boolean).sort()[0] || inv.buyDate || "";
+      const avgOpenPrice = totalVolume > 0 ? totalNativeCost / totalVolume : calcAvgBuyPrice(lots);
+      const avgClosePrice = totalVolume > 0 ? totalNativeProceeds / totalVolume : price;
+
+      closedPosition = {
+        id:            uid(),
+        name:          inv.name,
+        ticker:        inv.ticker,
+        xtbTicker:     inv.xtbTicker || null,
+        category:      inv.category,
+        currency:      inv.currency,
+        closed:        true,
+        volume:        totalVolume,
+        openPrice:     avgOpenPrice,
+        closePrice:    avgClosePrice,
+        openUsdPrice:  avgOpenPrice, // backward compat field
+        closeUsdPrice: avgClosePrice,
+        openDate:      oldestDate,
+        closeDate:     sellDate,
+        purchaseHuf:   Math.round(totalPurchaseHuf),
+        saleHuf:       Math.round(totalSaleHuf),
+        hufOpenPx:     totalVolume > 0 ? Math.round(totalPurchaseHuf / totalVolume) : 0,
+        hufClosePx:    totalVolume > 0 ? Math.round(totalSaleHuf / totalVolume) : 0,
+        pnl:           Math.round(totalPnlHuf),
+        pnlPct:        totalPurchaseHuf > 0 ? (totalPnlHuf / totalPurchaseHuf) * 100 : 0,
+        product:       "",
+      };
+    }
+
     onSell({
       updatedInv: {
         ...inv,
-        lots:         newLots,
-        quantity:     calcTotalQty(newLots),
-        buyPrice:     calcAvgBuyPrice(newLots),
-        realizedPnL:  (inv.realizedPnL || 0) + realPnL,
+        lots:         fifo.newLots,
+        quantity:     calcTotalQty(fifo.newLots),
+        buyPrice:     calcAvgBuyPrice(fifo.newLots),
+        realizedPnL:  (inv.realizedPnL || 0) + fifo.pnlNative,
         sales:        [...(inv.sales || []), sale],
       },
       sale,
-      fullyClose: newLots.length === 0 || calcTotalQty(newLots) <= 0,
+      fullyClose,
+      closedPosition,
     });
   };
 
@@ -92,10 +230,9 @@ export function SellModal({ inv, onSell, onClose }) {
 
         <div style={{ padding: "0 20px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-          {/* Beviteli mezők */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
-              <label style={labelStyle}>Eladási ár</label>
+              <label style={labelStyle}>Eladási ár ({inv.currency})</label>
               <input style={inputStyle} type="number" value={sellPrice} onChange={e => setSellPrice(e.target.value)} placeholder="0" />
             </div>
             <div>
@@ -114,30 +251,40 @@ export function SellModal({ inv, onSell, onClose }) {
             <input style={inputStyle} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Opcionális" />
           </div>
 
+          {!hasValidFx && (
+            <div style={{ padding: "10px 12px", borderRadius: T.radius.md, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.25)", color: T.accent.red, fontSize: 12 }}>
+              ⚠️ Nincs érvényes {inv.currency}/HUF árfolyam. Frissítsd a devizaárfolyamokat az eladás rögzítése előtt.
+            </div>
+          )}
+          {sellError && (
+            <div style={{ padding: "10px 12px", borderRadius: T.radius.md, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.25)", color: T.accent.red, fontSize: 12, lineHeight: 1.5 }}>
+              ⚠️ {sellError}
+            </div>
+          )}
+
           {/* P&L előnézet */}
-          {isValid && (
-            <div style={{ ...glassCard(T, { padding: 14 }), background: realPnL >= 0 ? "rgba(110,231,183,0.08)" : "rgba(252,165,165,0.08)", border: `1px solid ${realPnL >= 0 ? "rgba(110,231,183,0.25)" : "rgba(252,165,165,0.25)"}` }}>
-              <div style={{ fontSize: 11, color: T.text.tertiary, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12, fontWeight: 700 }}>Realizált P&L előnézet</div>
+          {isValid && fifo && (
+            <div style={{ ...glassCard(T, { padding: 14 }), background: fifo.pnlHuf >= 0 ? "rgba(110,231,183,0.08)" : "rgba(252,165,165,0.08)", border: `1px solid ${fifo.pnlHuf >= 0 ? "rgba(110,231,183,0.25)" : "rgba(252,165,165,0.25)"}` }}>
+              <div style={{ fontSize: 11, color: T.text.tertiary, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12, fontWeight: 700 }}>Realizált P&L előnézet (FIFO)</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 {[
-                  ["Bevétel",       fmtNum(proceeds, 0) + " " + inv.currency],
-                  ["Cost basis",    fmtNum(costBasis, 0) + " " + inv.currency],
-                  ["Realizált P&L", (realPnL >= 0 ? "+" : "") + fmtNum(realPnL, 0) + " " + inv.currency],
-                  ["Hozam",         (pct >= 0 ? "+" : "") + fmtNum(pct, 2) + "%"],
+                  ["Bevétel",         fmtNum(fifo.proceedsNative, 0) + " " + inv.currency],
+                  ["FIFO cost basis", fmtNum(fifo.fifoHufCost, 0) + " HUF"],
+                  ["P&L (HUF)",       (fifo.pnlHuf >= 0 ? "+" : "") + fmtNum(fifo.pnlHuf, 0) + " HUF"],
+                  ["Hozam",           (fifo.pnlPct >= 0 ? "+" : "") + fmtNum(fifo.pnlPct, 2) + "%"],
                 ].map(([l, v], i) => (
                   <div key={l}>
                     <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>{l}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'DM Mono',monospace", color: i >= 2 ? (realPnL >= 0 ? T.accent.green : T.accent.red) : T.text.primary }}>{v}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'DM Mono',monospace", color: i >= 2 ? (fifo.pnlHuf >= 0 ? T.accent.green : T.accent.red) : T.text.primary }}>{v}</div>
                   </div>
                 ))}
               </div>
               <div style={{ marginTop: 10, fontSize: 11, color: T.text.tertiary }}>
-                Cost basis: átlagolt vételár (FIFO) = {fmtNum(avgBuy, 2)} {inv.currency}
+                FIFO: historikus HUF bekerülési ár · {inv.currency !== "HUF" && `aktuális FX: ${Math.round(getFxRate())} HUF`}
               </div>
             </div>
           )}
 
-          {/* Akciók */}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <button onClick={onClose} style={{ background: "none", border: `1px solid ${T.border.default}`, borderRadius: T.radius.md, padding: "10px 20px", color: T.text.secondary, cursor: "pointer", fontSize: 13, fontFamily: "inherit" }}>Mégsem</button>
             <button onClick={handleSell} disabled={!isValid} style={{ background: isValid ? T.gradient.danger : T.bg.surface, border: "none", borderRadius: T.radius.md, padding: "10px 22px", color: "#fff", cursor: isValid ? "pointer" : "not-allowed", fontSize: 13, fontWeight: 700, fontFamily: "inherit", opacity: isValid ? 1 : 0.5, boxShadow: isValid ? "0 2px 12px rgba(239,68,68,0.35)" : "none" }}>

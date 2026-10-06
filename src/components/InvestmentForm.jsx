@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { CATEGORIES, CURRENCIES, EMPTY_FORM } from "../constants";
-import { uid, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum } from "../utils";
+import { uid, calcAvgBuyPrice, calcTotalQty, fmtNum, lotWithHufTotal } from "../utils";
 import { THEME as T, glassCard, haptic } from "../design-system";
 import { TickerSearch, fetchQuoteDetails, typeToCategory } from "./TickerSearch";
 
@@ -10,11 +10,25 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
   const fxRates = useMemo(() => {
     try { return JSON.parse(localStorage.getItem("investtrack_fx") || "{}"); } catch { return {}; }
   }, []);
-  const getFx = (currency) => currency === "HUF" ? 1 : (parseFloat(fxRates[currency]) || 1);
+  const getFx = (currency) => currency === "HUF" ? 1 : (parseFloat(fxRates[currency]) || 0);
 
   const blankLot = () => ({ id: uid(), price: "", quantity: "", date: new Date().toISOString().slice(0, 10), notes: "", amount: "" });
+  const historicalHufAmount = (lot) => {
+    const qty = parseFloat(lot.quantity) || 0;
+    const price = parseFloat(lot.price) || 0;
+    if (Number.isFinite(+lot.hufTotal) && +lot.hufTotal > 0) return +lot.hufTotal;
+    if (Number.isFinite(+lot.hufPerShare) && +lot.hufPerShare > 0 && qty > 0) return +lot.hufPerShare * qty;
+    if (Number.isFinite(+lot.impliedFxRate) && +lot.impliedFxRate > 0 && price > 0 && qty > 0) return price * qty * (+lot.impliedFxRate);
+    return 0;
+  };
   const initLots = initial?.lots?.length > 0
-    ? initial.lots.map(l => ({ ...l, amount: "" }))
+    ? initial.lots.map(l => ({
+        ...l,
+        price: String(l.price ?? ""),
+        quantity: String(l.quantity ?? ""),
+        // Initialize from authoritative historical HUF metadata — never today's FX.
+        amount: historicalHufAmount(l) > 0 ? String(Math.round(historicalHufAmount(l))) : "",
+      }))
     : initial?.buyPrice
       ? [{ id: uid(), price: String(initial.buyPrice), quantity: String(initial.quantity || ""), date: initial.buyDate || "", notes: "", amount: "" }]
       : [blankLot()];
@@ -22,12 +36,22 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
   const [lots, setLots] = useState(initLots);
 
-  // Recalculate HUF amounts whenever currency changes (or on mount with existing lots)
+  // Recalculate HUF amounts only after an actual currency change.
+  // Comparing the previous value also survives React StrictMode's dev effect replay
+  // without touching immutable historical HUF cost on initial mount.
+  const previousCurrencyRef = useRef(form.currency);
   useEffect(() => {
+    if (previousCurrencyRef.current === form.currency) return;
+    previousCurrencyRef.current = form.currency;
+
     const fx = getFx(form.currency);
     setLots(ls => ls.map(l => {
       const p = parseFloat(l.price), q = parseFloat(l.quantity);
-      return { ...l, amount: (p > 0 && q > 0) ? String(Math.round(p * q * fx)) : "" };
+      return {
+        ...l,
+        amount: (p > 0 && q > 0 && fx > 0) ? String(Math.round(p * q * fx)) : "",
+        _hufStale: true,
+      };
     }));
   }, [form.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -39,10 +63,13 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
     if (key === "price" || key === "quantity") {
       const p = parseFloat(key === "price" ? val : l.price);
       const q = parseFloat(key === "quantity" ? val : l.quantity);
+      // Recompute HUF amount — user changed price/qty so hufTotal must update
       updated.amount = (p > 0 && q > 0) ? String(Math.round(p * q * fx)) : "";
+      updated._hufStale = true; // flag: hufTotal will be recomputed on save
     } else if (key === "amount") {
       const p = parseFloat(l.price), a = parseFloat(val);
       if (p > 0 && a > 0 && fx > 0) updated.quantity = String(Math.round(a / (p * fx) * 10000) / 10000);
+      updated._hufStale = false; // user explicitly set amount → hufTotal = amount
     }
     return updated;
   }));
@@ -51,7 +78,13 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
 
   const avgPrice  = calcAvgBuyPrice(lots);
   const totalQty  = calcTotalQty(lots);
-  const totalCost = calcCostBasis(lots);
+  const totalHufCost = lots.reduce((sum, lot) => {
+    const amount = parseFloat(lot.amount);
+    if (Number.isFinite(amount) && amount > 0) return sum + amount;
+    const historical = parseFloat(lot.hufTotal);
+    if (!lot._hufStale && Number.isFinite(historical) && historical > 0) return sum + historical;
+    return sum;
+  }, 0);
 
   const inputStyle = {
     width: "100%", background: T.bg.inset, border: `1px solid ${T.border.default}`,
@@ -88,10 +121,23 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
 
   const handleSave = () => {
     if (!form.name.trim()) { setFormError("Adj meg megnevezést!"); return; }
-    const validLots = lots
-      .filter(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0)
-      .map(l => ({ ...l, price: parseFloat(l.price), quantity: parseFloat(l.quantity) }));
-    if (!validLots.length) { setFormError("Legalább egy érvényes vételi tétel kell!"); return; }
+    const fx = getFx(form.currency);
+    const sourceLots = lots.filter(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0);
+    if (!sourceLots.length) { setFormError("Legalább egy érvényes vételi tétel kell!"); return; }
+
+    const hasUnresolvedHufCost = sourceLots.some(l => {
+      const explicitAmount = parseFloat(l.amount);
+      const existingHuf = parseFloat(l.hufTotal);
+      if (Number.isFinite(explicitAmount) && explicitAmount > 0) return false;
+      if (!l._hufStale && Number.isFinite(existingHuf) && existingHuf > 0) return false;
+      return form.currency !== "HUF" && fx <= 0;
+    });
+    if (hasUnresolvedHufCost) {
+      setFormError(`Nincs érvényes ${form.currency}/HUF árfolyam. Adj meg HUF összeget, vagy frissítsd a devizaárfolyamot.`);
+      return;
+    }
+
+    const validLots = sourceLots.map(l => lotWithHufTotal(l, fx)); // canonical hufTotal saved here
     setFormError(null);
     onSave({
       ...form,
@@ -214,7 +260,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
         {lots.some(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0) && (
           <div style={{ ...glassCard(T, { padding: 12 }), marginTop: 10, background: "rgba(110,231,183,0.06)", border: `1px solid rgba(110,231,183,0.2)` }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
-              {[["Átlag vételár", fmtNum(avgPrice, 2)], ["Összmennyiség", fmtNum(totalQty, 4)], ["Befektetett", fmtNum(totalCost * getFx(form.currency), 0) + " Ft"]].map(([l, v]) => (
+              {[["Átlag vételár", fmtNum(avgPrice, 2)], ["Összmennyiség", fmtNum(totalQty, 4)], ["Befektetett", totalHufCost > 0 ? fmtNum(totalHufCost, 0) + " Ft" : "—"]].map(([l, v]) => (
                 <div key={l}>
                   <div style={{ fontSize: 9, color: T.text.tertiary, textTransform: "uppercase", marginBottom: 3 }}>{l}</div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.accent.green, fontFamily: "'DM Mono',monospace" }}>{v}</div>

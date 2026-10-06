@@ -1,16 +1,17 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
-import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll, uid } from "./utils";
+import { fmtNum, fmtCurrency, calcPnLHuf, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll, uid } from "./utils";
 import { refreshAllPrices, fetchYahooPrice, fetchFxRates } from "./services/priceService";
-import { parseXTBFile } from "./services/xtbImporter";
+import { parseXTBFile, getExpectedCurrency, isSupportedExchange } from "./services/xtbImporter";
 import {
   supabase, onAuthStateChange, signOut,
   fetchInvestments, upsertInvestment, upsertInvestments, deleteInvestment, deleteAllInvestments,
   fetchClosedPositions, upsertClosedPositions, deleteAllClosedPositions,
   fetchPendingOrders, upsertPendingOrder, deletePendingOrder,
-  savePortfolioSnapshot, migrateFromLocalStorage,
+  savePortfolioSnapshot,
 } from "./services/supabase";
+import { createImportMutex, persistCsvImport } from "./services/importPersistence";
 import { AuthScreen } from "./components/AuthScreen";
 import { THEME as T, LIGHT_THEME, glassCard, haptic, KEYFRAMES } from "./design-system";
 
@@ -30,22 +31,20 @@ import { PortfolioTab } from "./components/PortfolioTab";
 import { DashboardTab } from "./components/DashboardTab";
 import { AppModals } from "./components/AppModals";
 
+const scopedStorageKey = (base, userId) => userId ? `${base}:${userId}` : null;
+
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [user,            setUser]            = useState(undefined); // undefined = loading
   const [dbReady,         setDbReady]         = useState(false);
-  const syncRef = useRef(false); // megakadályozza a dupla szinkronizálást
+  // Store the user id whose DB state is currently loaded. This prevents duplicate
+  // token-refresh loads without leaking one account's state into another account.
+  const syncRef = useRef(null);
   // ── State ──
-  const [investments,     setInvestments]     = useState(() => {
-    try {
-      const raw = JSON.parse(localStorage.getItem("investtrack_v2") || localStorage.getItem("investtrack_v1") || "[]");
-      return migrateAll(raw);
-    } catch { return []; }
-  });
-  const [closedPositions, setClosedPositions] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("investtrack_closed") || "[]"); }
-    catch { return []; }
-  });
+  // Authenticated DB is the source of truth. Do not hydrate financial data from
+  // unscoped legacy localStorage before the active user is known.
+  const [investments,     setInvestments]     = useState([]);
+  const [closedPositions, setClosedPositions] = useState([]);
   const [showClosed,      setShowClosed]      = useState(false);
   const [sellInv,         setSellInv]         = useState(null);
   const [modal,           setModal]           = useState(null);
@@ -76,12 +75,12 @@ export default function App() {
   const [importConfirm,   setImportConfirm]   = useState(null); // { type:"csv"|"xtb", parsed, closed?, msg }
   const [pendingOrders,   setPendingOrders]   = useState([]);
   const [isDark,          setIsDark]          = useState(() => localStorage.getItem("investtrack_theme") !== "light");
-  const [lastRefreshed,   setLastRefreshed]   = useState(() => {
-    const saved = localStorage.getItem("investtrack_last_refresh");
-    return saved ? new Date(saved) : null;
-  });
+  const [lastRefreshed,   setLastRefreshed]   = useState(null);
   const [isBooting,       setIsBooting]       = useState(true);
   const [refreshingId,    setRefreshingId]    = useState(null);
+  const [importing,       setImporting]       = useState(false);
+  const importMutexRef = useRef(null);
+  if (!importMutexRef.current) importMutexRef.current = createImportMutex();
 
   // Rövid boot delay – fonts + layout betöltés
   useEffect(() => {
@@ -163,6 +162,15 @@ export default function App() {
         setUser(session?.user ?? null);
         window.history.replaceState(null, "", window.location.pathname);
       } else if (event === "SIGNED_OUT") {
+        syncRef.current = null;
+        setInvestments([]);
+        setClosedPositions([]);
+        setPendingOrders([]);
+        setDbReady(false);
+        setLastRefreshed(null);
+        setDetailInv(null);
+        setEditing(null);
+        setModal(null);
         setUser(null);
       } else if (event === "USER_UPDATED") {
         setUser(session?.user ?? null);
@@ -174,53 +182,96 @@ export default function App() {
 
   // ── Adatok betöltése bejelentkezés után ──────────────────────────────────
   useEffect(() => {
-    if (!user || syncRef.current) return;
-    syncRef.current = true;
+    if (!user || syncRef.current === user.id) return;
+    const loadingUserId = user.id;
+    syncRef.current = loadingUserId;
+
     async function loadData() {
       try {
         setIsBooting(true);
-        // LocalStorage migráció ha van régi adat
-        const hasLocal = localStorage.getItem("investtrack_v2") || localStorage.getItem("investtrack_v1");
-        if (hasLocal) {
-          const parsed = JSON.parse(hasLocal || "[]");
-          if (parsed.length > 0) {
-            await migrateFromLocalStorage();
-            localStorage.removeItem("investtrack_v2"); localStorage.removeItem("investtrack_v1");
-            localStorage.removeItem("investtrack_closed"); localStorage.removeItem("investtrack_pending_v1");
-          }
-        }
-        const [invs, closed, pending] = await Promise.all([fetchInvestments(), fetchClosedPositions(), fetchPendingOrders()]);
-        setInvestments(migrateAll(invs));
+        setDbReady(false);
+
+        const [invs, closed, pending] = await Promise.all([
+          fetchInvestments(),
+          fetchClosedPositions(),
+          fetchPendingOrders(),
+        ]);
+
+        // Ignore a late response if another account became active in the meantime.
+        if (syncRef.current !== loadingUserId) return;
+
+        const migratedInvs = migrateAll(invs);
+        setInvestments(migratedInvs);
         setClosedPositions(closed);
         setPendingOrders(pending);
         setDbReady(true);
         setIsBooting(false);
-        // Napi egyszer automatikus snapshot mentés app betöltéskor
+
+        const refreshKey = scopedStorageKey("investtrack_last_refresh", loadingUserId);
+        const savedRefresh = refreshKey ? localStorage.getItem(refreshKey) : null;
+        setLastRefreshed(savedRefresh ? new Date(savedRefresh) : null);
+
+        // Napi egyszer automatikus snapshot mentés app betöltéskor.
         const today = new Date().toISOString().slice(0, 10);
-        const lastSnapDate = localStorage.getItem("investtrack_last_snapshot_date");
-        const migratedInvs = migrateAll(invs);
-        if (lastSnapDate !== today && migratedInvs.some(i => (i.currentPrice ?? 0) > 0)) {
-          const snapValue = migratedInvs.reduce((s, i) => s + calcPnL(i).value, 0);
-          const snapCost  = migratedInvs.reduce((s, i) => s + calcPnL(i).cost, 0);
-          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
-          localStorage.setItem("investtrack_last_snapshot_date", today);
+        const snapKey = scopedStorageKey("investtrack_last_snapshot_date", loadingUserId);
+        const lastSnapDate = snapKey ? localStorage.getItem(snapKey) : null;
+        if (lastSnapDate !== today && migratedInvs.length > 0) {
+          const cachedFx = JSON.parse(localStorage.getItem("investtrack_fx") || "{}");
+          const snapRows = migratedInvs.map(i => calcPnLHuf(i, cachedFx));
+          if (snapRows.every(p => p.valuationAvailable && !p.hasEstimatedCost)) {
+            const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
+            const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
+            savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+            if (snapKey) localStorage.setItem(snapKey, today);
+          } else {
+            console.warn("Snapshot kihagyva: hiányzó quote/FX vagy becsült historical cost basis.");
+          }
         }
       } catch (err) {
-        showToast("Adatbetöltés hiba: " + err.message, "error");
-        setIsBooting(false); setDbReady(true);
+        if (syncRef.current !== loadingUserId) return;
+
+        // User-scoped local backup is only a recovery fallback; never read another
+        // account's or the old unscoped portfolio automatically.
+        try {
+          const invKey = scopedStorageKey(STORAGE_KEY, loadingUserId);
+          const closedKey = scopedStorageKey("investtrack_closed", loadingUserId);
+          const pendingKey = scopedStorageKey("investtrack_pending_v1", loadingUserId);
+          const cachedInvs = JSON.parse(localStorage.getItem(invKey) || "[]");
+          const cachedClosed = JSON.parse(localStorage.getItem(closedKey) || "[]");
+          const cachedPending = JSON.parse(localStorage.getItem(pendingKey) || "[]");
+          if (cachedInvs.length || cachedClosed.length || cachedPending.length) {
+            setInvestments(migrateAll(cachedInvs));
+            setClosedPositions(cachedClosed);
+            setPendingOrders(cachedPending);
+            showToast("Supabase nem elérhető – saját helyi mentés betöltve.", "info");
+          } else {
+            showToast("Adatbetöltés hiba: " + err.message, "error");
+          }
+        } catch {
+          showToast("Adatbetöltés hiba: " + err.message, "error");
+        }
+        setIsBooting(false);
+        setDbReady(true);
       }
     }
     loadData();
   }, [user]);
 
-  // ── Persistence: localStorage backup ──────────────────────────────────────
+  // ── Persistence: user-scoped localStorage backup ─────────────────────────
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(investments));
-  }, [investments]);
+    if (!user || !dbReady) return;
+    localStorage.setItem(scopedStorageKey(STORAGE_KEY, user.id), JSON.stringify(investments));
+  }, [investments, user, dbReady]);
 
   useEffect(() => {
-    localStorage.setItem("investtrack_closed", JSON.stringify(closedPositions));
-  }, [closedPositions]);
+    if (!user || !dbReady) return;
+    localStorage.setItem(scopedStorageKey("investtrack_closed", user.id), JSON.stringify(closedPositions));
+  }, [closedPositions, user, dbReady]);
+
+  useEffect(() => {
+    if (!user || !dbReady) return;
+    localStorage.setItem(scopedStorageKey("investtrack_pending_v1", user.id), JSON.stringify(pendingOrders));
+  }, [pendingOrders, user, dbReady]);
 
   // ── Price refresh ──
   const handleRefresh = async () => {
@@ -236,11 +287,12 @@ export default function App() {
         localStorage.setItem("investtrack_fx", JSON.stringify(newFxRates));
       }
       if (!results.size) { showToast("❌ Minden lekérés sikertelen!", "error"); return; }
+      const refreshedAt = new Date().toISOString();
       const updated = investments.map(inv => {
         const hit = results.get(inv.ticker?.toUpperCase());
         if (!hit) return inv;
         const newPrice = inv.currency === "HUF" ? hit.hufPrice : hit.nativePrice;
-        return { ...inv, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency, _refreshedAt: new Date().toISOString() };
+        return { ...inv, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency, _refreshedAt: refreshedAt, quoteStatus: "fresh" };
       });
       // Célár riasztás
       updated.forEach(inv => {
@@ -252,16 +304,22 @@ export default function App() {
         if (wasBelow && nowAbove) showToast(`🎯 ${inv.name} elérte a célárat!`, "success");
       });
       setInvestments(updated);
-      // Portfólió snapshot mentése
+      // Portfólió snapshot + Supabase szinkron
       if (user) {
-        const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
-        const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
-        savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        const snapRows = updated.map(i => calcPnLHuf(i, newFxRates));
+        if (snapRows.every(p => p.valuationAvailable && !p.hasEstimatedCost)) {
+          const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
+          const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
+          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        } else {
+          console.warn("Snapshot kihagyva: hiányzó quote/FX vagy becsült historical cost basis.");
+        }
+        upsertInvestments(updated).catch(e => console.warn("Árfrissítés szinkron hiba:", e.message));
       }
       const ok = results.size, fail = errors.length;
       const now = new Date();
       setLastRefreshed(now);
-      localStorage.setItem("investtrack_last_refresh", now.toISOString());
+      if (user) localStorage.setItem(scopedStorageKey("investtrack_last_refresh", user.id), now.toISOString());
       showToast(fail > 0 ? `⚠️ ${ok} frissítve, ${fail} sikertelen: ${errors.join(", ")}` : `✓ ${ok} árfolyam frissítve!`, fail > 0 ? "info" : "success");
     } catch (e) {
       showToast(`❌ ${e.message}`, "error");
@@ -292,29 +350,46 @@ export default function App() {
 
   const handleRefreshSingle = async (inv) => {
     if (refreshingId || !inv.ticker?.trim()) return;
-    // Ha HUF-os részvény és nincs még érvényes cached FX rate, teljes frissítés kell
-    const needsFx = inv.currency === "HUF";
-    const hasCachedFx = needsFx ? Object.values(fxRates).some(r => r > 1) : true;
-    if (!hasCachedFx) {
-      showToast("Először végezz teljes árfolyamfrissítést a devizaárfolyamokhoz!", "info");
+    if (inv.xtbTicker && !isSupportedExchange(inv.xtbTicker)) {
+      showToast(`❌ Nem támogatott XTB tőzsde: ${inv.xtbTicker}`, "error");
       return;
     }
+
     setRefreshingId(inv.id);
     try {
-      const data = await fetchYahooPrice(inv.ticker);
+      const expectedCurrency = inv.xtbTicker
+        ? getExpectedCurrency(inv.xtbTicker)
+        : (inv.currency === "HUF" ? null : inv.currency);
+      const data = await fetchYahooPrice(inv.ticker, expectedCurrency);
+
       let finalPrice = data.price;
-      if (needsFx && data.currency && data.currency !== "HUF") {
-        finalPrice = data.price * (fxRates[data.currency] || 1);
+      if (inv.currency === "HUF" && data.currency && data.currency !== "HUF") {
+        const yahooFx = fxRates[data.currency];
+        if (!Number.isFinite(yahooFx) || yahooFx <= 0) {
+          throw new Error(`Nincs ${data.currency}/HUF árfolyam. Előbb frissítsd a devizaárfolyamokat.`);
+        }
+        finalPrice = data.price * yahooFx;
       }
+
+      const refreshedAt = new Date().toISOString();
       const updated = investments.map(i => i.id === inv.id
-        ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: new Date().toISOString() }
+        ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: refreshedAt, quoteStatus: "fresh" }
         : i
       );
       setInvestments(updated);
+
       if (user) {
-        const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
-        const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
-        savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        const snapRows = updated.map(i => calcPnLHuf(i, fxRates));
+        if (snapRows.every(p => p.valuationAvailable && !p.hasEstimatedCost)) {
+          const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
+          const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
+          savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        } else {
+          console.warn("Snapshot kihagyva: hiányzó quote/FX vagy becsült historical cost basis.");
+        }
+
+        const updInv = updated.find(i => i.id === inv.id);
+        if (updInv) upsertInvestment(updInv).catch(e => console.warn("Egyedi frissítés szinkron:", e.message));
       }
       showToast(`✓ ${inv.ticker} frissítve!`, "success");
     } catch (e) {
@@ -351,33 +426,50 @@ export default function App() {
     }
     setInvestments([]);
     setClosedPositions([]);
-    localStorage.removeItem("investtrack_v2");
-    localStorage.removeItem("investtrack_v1");
-    localStorage.removeItem("investtrack_closed");
-    localStorage.removeItem("investtrack_last_refresh");
+    if (user) {
+      localStorage.removeItem(scopedStorageKey(STORAGE_KEY, user.id));
+      localStorage.removeItem(scopedStorageKey("investtrack_closed", user.id));
+      localStorage.removeItem(scopedStorageKey("investtrack_pending_v1", user.id));
+      localStorage.removeItem(scopedStorageKey("investtrack_last_snapshot_date", user.id));
+      localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", user.id));
+    }
     setLastRefreshed(null);
     showToast("Portfólió törölve!", "info");
   };
 
-  const handleSell = async ({ updatedInv, sale, fullyClose }) => {
+  const handleSell = async ({ updatedInv, sale, fullyClose, closedPosition }) => {
     setInvestments(prev => {
       if (fullyClose) return prev.filter(i => i.id !== updatedInv.id);
       return prev.map(i => i.id === updatedInv.id ? updatedInv : i);
     });
+    if (closedPosition) {
+      setClosedPositions(prev => [...prev, closedPosition]);
+    }
     setSellInv(null);
     addTransaction({ ...updatedInv, ...sale }, "sell");
     if (user) {
       try {
-        if (fullyClose) await deleteInvestment(updatedInv.id);
-        else            await upsertInvestment(updatedInv);
+        if (fullyClose) {
+          // Persist the closed history first. If the subsequent delete fails,
+          // the DB may temporarily contain both records, but realized history
+          // is not lost and the operation is safely retryable.
+          if (closedPosition) await upsertClosedPositions([closedPosition]);
+          await deleteInvestment(updatedInv.id);
+        } else {
+          await upsertInvestment(updatedInv);
+        }
       } catch(e) { console.warn("Eladás sync hiba:", e.message); }
     }
-    const pnlStr = (sale.realizedPnL >= 0 ? "+" : "") + fmtNum(sale.realizedPnL, 0) + " " + sale.currency;
-    showToast(`Eladás rögzítve! Realizált P&L: ${pnlStr}`, sale.realizedPnL >= 0 ? "success" : "info");
+    const pnlHufStr = sale.pnlHuf != null
+      ? `${sale.pnlHuf >= 0 ? "+" : ""}${fmtNum(sale.pnlHuf, 0)} HUF`
+      : `${sale.realizedPnL >= 0 ? "+" : ""}${fmtNum(sale.realizedPnL, 0)} ${sale.currency}`;
+    const realizedForTone = sale.pnlHuf != null ? sale.pnlHuf : sale.realizedPnL;
+    showToast(`Eladás rögzítve! Realizált P&L: ${pnlHufStr}`, realizedForTone >= 0 ? "success" : "info");
   };
 
   // ── CRUD ──
   const saveInvestment = useCallback(inv => {
+    const isEdit = !!editing;
     setInvestments(prev => {
       const idx = prev.findIndex(i => i.id === inv.id);
       if (idx >= 0) {
@@ -387,9 +479,10 @@ export default function App() {
       addTransaction(inv, "buy");
       return [...prev, inv];
     });
+    if (user) upsertInvestment(inv).catch(e => console.warn("Mentés szinkron hiba:", e.message));
     setModal(null); setEditing(null);
-    showToast(editing ? "Befektetés frissítve!" : "Befektetés hozzáadva!");
-  }, [editing]);
+    showToast(isEdit ? "Befektetés frissítve!" : "Befektetés hozzáadva!");
+  }, [editing, user]);
 
   const handleConvertOrder = (order, { price, quantity, date }) => {
     const actualPrice = parseFloat(price) || order.limitPrice || 0;
@@ -415,11 +508,14 @@ export default function App() {
     if (inv) addTransaction(inv, "sell");
     setInvestments(prev => prev.filter(i => i.id !== id));
     setConfirmDelete(null);
+    if (user) deleteInvestment(id).catch(e => console.warn("Törlés szinkron hiba:", e.message));
     showToast("Befektetés törölve.", "info");
   };
 
   // ── Import ──
-  const handleImport = () => {
+  const handleImport = async () => {
+    if (!importMutexRef.current.tryLock()) return;
+    setImporting(true);
     try {
       const parsed = parseCSV(importText);
       if (!parsed.length) throw new Error("Nem találtam adatsort");
@@ -430,58 +526,93 @@ export default function App() {
         });
         return;
       }
+      const importUserId = user.id;
+      await persistCsvImport({ mode: "merge", investments: parsed, userId: importUserId });
+      if (syncRef.current !== importUserId) return;
       setInvestments(parsed);
       setModal(null); setImportText("");
       showToast(`${parsed.length} befektetés importálva!`);
     } catch (e) { showToast("Import hiba: " + e.message, "error"); }
+    finally {
+      setImporting(false);
+      importMutexRef.current.unlock();
+    }
   };
 
   const handleImportReplace = async () => {
     const { type, parsed, closed } = importConfirm;
-    setImportConfirm(null);
     if (type === "csv") {
-      setInvestments(parsed);
-      localStorage.removeItem("investtrack_last_refresh");
-      setLastRefreshed(null);
-      setModal(null); setImportText("");
-      showToast(`${parsed.length} befektetés importálva!`);
-    } else {
-      if (user) {
-        try {
-          await deleteAllInvestments();
-          await deleteAllClosedPositions();
-          await upsertInvestments(parsed);
-          await upsertClosedPositions(closed);
-        } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
+      if (!importMutexRef.current.tryLock()) return;
+      setImporting(true);
+      setImportConfirm(null);
+      try {
+        const importUserId = user.id;
+        await persistCsvImport({ mode: "replace", investments: parsed, userId: importUserId });
+        if (syncRef.current !== importUserId) return;
+        setInvestments(parsed);
+        localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", importUserId));
+        setLastRefreshed(null);
+        setModal(null); setImportText("");
+        showToast(`${parsed.length} befektetés importálva!`);
+      } catch (e) {
+        showToast("CSV szinkron hiba: " + e.message, "error");
+      } finally {
+        setImporting(false);
+        importMutexRef.current.unlock();
       }
-      setInvestments(parsed);
-      setClosedPositions(closed);
-      localStorage.removeItem("investtrack_last_refresh");
-      setLastRefreshed(null);
-      setModal(null);
-      showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció`);
+      return;
     }
+
+    setImportConfirm(null);
+    if (user) {
+      try {
+        await deleteAllInvestments();
+        await deleteAllClosedPositions();
+        await upsertInvestments(parsed);
+        await upsertClosedPositions(closed);
+      } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
+    }
+    setInvestments(parsed);
+    setClosedPositions(closed);
+    if (user) localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", user.id));
+    setLastRefreshed(null);
+    setModal(null);
+    showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció`);
   };
 
   const handleImportMerge = async () => {
     const { type, parsed, closed } = importConfirm;
-    setImportConfirm(null);
     if (type === "csv") {
-      setInvestments(prev => [...prev, ...parsed]);
-      setModal(null); setImportText("");
-      showToast(`${parsed.length} befektetés hozzáadva!`);
-    } else {
-      setInvestments(prev => [...prev, ...parsed]);
-      setClosedPositions(prev => [...prev, ...closed]);
-      if (user) {
-        try {
-          await upsertInvestments(parsed);
-          await upsertClosedPositions(closed);
-        } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
+      if (!importMutexRef.current.tryLock()) return;
+      setImporting(true);
+      setImportConfirm(null);
+      try {
+        const importUserId = user.id;
+        await persistCsvImport({ mode: "merge", investments: parsed, userId: importUserId });
+        if (syncRef.current !== importUserId) return;
+        setInvestments(prev => [...prev, ...parsed]);
+        setModal(null); setImportText("");
+        showToast(`${parsed.length} befektetés hozzáadva!`);
+      } catch (e) {
+        showToast("CSV szinkron hiba: " + e.message, "error");
+      } finally {
+        setImporting(false);
+        importMutexRef.current.unlock();
       }
-      setModal(null);
-      showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció hozzáadva`);
+      return;
     }
+
+    setImportConfirm(null);
+    setInvestments(prev => [...prev, ...parsed]);
+    setClosedPositions(prev => [...prev, ...closed]);
+    if (user) {
+      try {
+        await upsertInvestments(parsed);
+        await upsertClosedPositions(closed);
+      } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
+    }
+    setModal(null);
+    showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció hozzáadva`);
   };
 
   const handleFileImport = e => {
@@ -528,46 +659,71 @@ export default function App() {
     e.target.value = "";
   };
 
-  // ── Stats ──
+  // ── Stats ── (minden összeg HUF-ban, fxRates alapján normalizálva)
   const stats = useMemo(() => {
-    const pnlData    = investments.map(i => calcPnL(i));
-    const totalCost  = pnlData.reduce((s, p) => s + p.cost, 0);
-    const totalValue = pnlData.reduce((s, p) => s + p.value, 0);
-    const totalPnL   = totalValue - totalCost;
-    const totalPct   = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
+    const pnlData    = investments.map(i => calcPnLHuf(i, fxRates));
+    const totalCost  = pnlData.reduce((s, p) => s + p.costHuf, 0);
+    const valuedData = pnlData.filter(p => p.valuationAvailable);
+    const totalValue = valuedData.reduce((s, p) => s + p.valueHuf, 0);
+    const totalPnL   = valuedData.reduce((s, p) => s + p.pnlHuf, 0);
+    const valuedCost = valuedData.reduce((s, p) => s + p.costHuf, 0);
+    const totalPct   = valuedCost > 0 ? (totalPnL / valuedCost) * 100 : 0;
+    const valuationComplete = pnlData.every(p => p.valuationAvailable);
+    const costBasisComplete = pnlData.every(p => !p.hasEstimatedCost);
+
+    // Allocation charts may fall back to historical HUF cost for an unavailable quote,
+    // but their denominator must use the same fallback basis.
+    const allocationRows = investments.map((inv, idx) => {
+      const p = pnlData[idx];
+      return {
+        inv,
+        p,
+        allocationValue: p.valuationAvailable ? p.valueHuf : p.costHuf,
+      };
+    });
+    const allocationTotal = allocationRows.reduce((sum, r) => sum + r.allocationValue, 0);
 
     const catBreakdown = CATEGORIES
       .map(c => {
-        const invs = investments.filter(i => i.category === c);
-        // Ha nincs currentPrice, cost basis alapján mutatjuk
-        const v = invs.reduce((s, i) => {
-          const p = calcPnL(i);
-          return s + (p.value > 0 ? p.value : p.cost);
-        }, 0);
-        return { label: c, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: CATEGORY_COLORS[c] };
+        const v = allocationRows
+          .filter(r => r.inv.category === c)
+          .reduce((sum, r) => sum + r.allocationValue, 0);
+        return { label: c, value: v, pct: allocationTotal > 0 ? (v / allocationTotal) * 100 : 0, color: CATEGORY_COLORS[c] };
       })
       .filter(d => d.value > 0);
 
-    const posBreakdown = [...investments]
-      .map((inv, idx) => {
-        const p = calcPnL(inv);
-        const v = p.value > 0 ? p.value : p.cost;
-        return { label: inv.ticker || inv.name, fullName: inv.name, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: POSITION_PALETTE[idx % POSITION_PALETTE.length] };
-      })
+    const posBreakdown = allocationRows
+      .map(({ inv, allocationValue }, idx) => ({
+        label: inv.ticker || inv.name,
+        fullName: inv.name,
+        value: allocationValue,
+        pct: allocationTotal > 0 ? (allocationValue / allocationTotal) * 100 : 0,
+        color: POSITION_PALETTE[idx % POSITION_PALETTE.length],
+      }))
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
 
-    const totalRealizedPnL = investments.reduce((s, i) => s + (i.realizedPnL || 0), 0)
+    // Realizált P&L csak HUF-ban összegezhető.
+    // Nyitott pozíciók részleges eladásainál a sales[].pnlHuf a canonical HUF érték.
+    const openRealizedHuf = investments.reduce((sum, inv) => {
+      const salesHuf = (inv.sales || []).reduce(
+        (acc, sale) => acc + (Number.isFinite(+sale.pnlHuf) ? +sale.pnlHuf : 0),
+        0,
+      );
+      return sum + salesHuf;
+    }, 0);
+    const totalRealizedPnL = openRealizedHuf
       + closedPositions.reduce((s, c) => s + (c.pnl || 0), 0);
-    const totalDividend    = investments.reduce((s, i) => {
+
+    const totalDividend = investments.reduce((s, i) => {
       if (!i.dividendYield || !i.currentPrice) return s;
-      return s + (parseFloat(i.dividendYield) / 100) * calcPnL(i).value;
+      return s + (parseFloat(i.dividendYield) / 100) * calcPnLHuf(i, fxRates).valueHuf;
     }, 0);
 
     const pendingTotal = pendingOrders.reduce((s, o) => s + (o.hufTotal || 0), 0);
 
-    return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
-  }, [investments, closedPositions, pendingOrders]);
+    return { totalCost, totalValue, totalPnL, totalPct, valuationComplete, costBasisComplete, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
+  }, [investments, closedPositions, pendingOrders, fxRates]);
 
   // ── Filtered & sorted list ──
   const displayed = useMemo(() => {
@@ -578,14 +734,22 @@ export default function App() {
     );
     return [...list].sort((a, b) => {
       let va, vb;
-      if      (sortBy === "name")  { va = a.name;             vb = b.name; }
-      else if (sortBy === "value") { va = calcPnL(a).value;   vb = calcPnL(b).value; }
-      else if (sortBy === "pnl")   { va = calcPnL(a).pct;     vb = calcPnL(b).pct; }
+      if      (sortBy === "name")  { va = a.name; vb = b.name; }
+      else if (sortBy === "value") {
+        const pa = calcPnLHuf(a, fxRates), pb = calcPnLHuf(b, fxRates);
+        va = pa.valuationAvailable ? pa.valueHuf : -Infinity;
+        vb = pb.valuationAvailable ? pb.valueHuf : -Infinity;
+      }
+      else if (sortBy === "pnl") {
+        const pa = calcPnLHuf(a, fxRates), pb = calcPnLHuf(b, fxRates);
+        va = pa.valuationAvailable ? pa.pnlPct : -Infinity;
+        vb = pb.valuationAvailable ? pb.pnlPct : -Infinity;
+      }
       else if (sortBy === "date")  { va = a.lots?.[0]?.date || a.buyDate || ""; vb = b.lots?.[0]?.date || b.buyDate || ""; }
       else                         { va = a[sortBy];                    vb = b[sortBy]; }
       return (va < vb ? -1 : va > vb ? 1 : 0) * (sortDir === "asc" ? 1 : -1);
     });
-  }, [investments, search, filterCat, sortBy, sortDir]);
+  }, [investments, search, filterCat, sortBy, sortDir, fxRates]);
 
   const toggleSort = col => {
     if (sortBy === col) setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -703,6 +867,7 @@ export default function App() {
             investments={investments}
             closedPositions={closedPositions}
             stats={stats}
+            fxRates={fxRates}
             refreshLabel={refreshLabel}
             search={search}           setSearch={setSearch}
             filterCat={filterCat}     setFilterCat={setFilterCat}
@@ -727,6 +892,7 @@ export default function App() {
         theme={theme}
         investments={investments}
         closedPositions={closedPositions}
+        fxRates={fxRates}
         modal={modal}               setModal={setModal}
         editing={editing}           setEditing={setEditing}
         detailInv={detailInv}       setDetailInv={setDetailInv}
@@ -742,6 +908,7 @@ export default function App() {
         featureModal={featureModal}  setFeatureModal={setFeatureModal}
         toast={toast}
         importText={importText}     setImportText={setImportText}
+        importing={importing}
         saveInvestment={saveInvestment}
         handleSell={handleSell}
         handleImport={handleImport}

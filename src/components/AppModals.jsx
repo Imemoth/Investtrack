@@ -11,6 +11,7 @@ import { glassCard } from "../design-system";
 
 export function AppModals({
   theme, investments, closedPositions,
+  fxRates,
   // Modal state
   modal, setModal,
   editing, setEditing,
@@ -26,7 +27,7 @@ export function AppModals({
   featureModal, setFeatureModal,
   toast,
   // Import state
-  importText, setImportText,
+  importText, setImportText, importing,
   // Handlers
   saveInvestment,
   handleSell,
@@ -64,9 +65,9 @@ export function AppModals({
               <div style={{ fontSize:11, color:theme.text.tertiary, marginBottom:12, background:theme.bg.inset, borderRadius:theme.radius.sm, padding:"8px 10px", lineHeight:1.7 }}>
                 xStation5 → <strong style={{ color:theme.text.secondary }}>Account History</strong> → Export → <strong style={{ color:theme.text.secondary }}>Full Report</strong> → <strong style={{ color:theme.text.secondary }}>Excel</strong>
               </div>
-              <label style={{ ...btnPrimary, display:"inline-flex", cursor:"pointer", justifyContent:"center" }}>
+              <label style={{ ...btnPrimary, display:"inline-flex", cursor:importing?"not-allowed":"pointer", justifyContent:"center", opacity:importing?0.5:1 }}>
                 📥 XTB XLSX feltöltése
-                <input type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleFileImport} />
+                <input type="file" accept=".xlsx,.xls" style={{ display:"none" }} onChange={handleFileImport} disabled={importing} />
               </label>
             </div>
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
@@ -74,14 +75,15 @@ export function AppModals({
               <span style={{ fontSize:11, color:theme.text.tertiary }}>vagy CSV manuálisan</span>
               <div style={{ flex:1, height:1, background:theme.border.subtle }} />
             </div>
-            <label style={{ ...btnGhost, display:"inline-flex", cursor:"pointer", justifyContent:"center" }}>
+            <label style={{ ...btnGhost, display:"inline-flex", cursor:importing?"not-allowed":"pointer", justifyContent:"center", opacity:importing?0.5:1 }}>
               📁 CSV feltöltése
-              <input type="file" accept=".csv,.txt" style={{ display:"none" }} onChange={handleFileImport} />
+              <input type="file" accept=".csv,.txt" style={{ display:"none" }} onChange={handleFileImport} disabled={importing} />
             </label>
             <textarea
               style={{ width:"100%", background:theme.bg.inset, border:`1px solid ${theme.border.default}`, borderRadius:theme.radius.md, padding:"10px 12px", color:theme.text.primary, fontSize:12, fontFamily:"'DM Mono',monospace", minHeight:80, resize:"vertical", boxSizing:"border-box", outline:"none" }}
               placeholder="Név,Ticker,Kategória,Vétel ár,Darab,Jelenlegi ár,Deviza,Vétel dátum,Megjegyzés"
               value={importText} onChange={e => setImportText(e.target.value)}
+              disabled={importing}
             />
             <div style={{ background:theme.bg.inset, border:`1px solid ${theme.border.subtle}`, borderRadius:theme.radius.md, padding:"12px 14px", fontSize:12, color:theme.text.secondary, lineHeight:1.7 }}>
               <div style={{ fontWeight:700, color:theme.text.primary, marginBottom:4 }}>📋 Oszlopsorrend:</div>
@@ -94,7 +96,7 @@ export function AppModals({
             </div>
             <div style={{ display:"flex", gap:12, justifyContent:"flex-end" }}>
               <button style={btnGhost} onClick={() => { setModal(null); setImportText(""); }}>Mégsem</button>
-              <button style={{ ...btnPrimary, opacity:importText.trim()?1:0.5 }} onClick={handleImport} disabled={!importText.trim()}>Importálás</button>
+              <button style={{ ...btnPrimary, opacity:importText.trim()&&!importing?1:0.5 }} onClick={handleImport} disabled={!importText.trim() || importing}>{importing ? "Mentés..." : "Importálás"}</button>
             </div>
           </div>
         </Modal>
@@ -135,9 +137,9 @@ export function AppModals({
               <button style={{ background:"none", border:`1px solid ${theme.border.default}`, borderRadius:theme.radius.md, padding:"9px 14px", color:theme.text.secondary, cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"inherit" }}
                 onClick={() => setImportConfirm(null)}>Mégsem</button>
               <button style={{ background:"none", border:`1px solid ${theme.border.default}`, borderRadius:theme.radius.md, padding:"9px 14px", color:theme.text.secondary, cursor:"pointer", fontSize:13, fontWeight:600, fontFamily:"inherit" }}
-                onClick={handleImportMerge}>Hozzáadás</button>
+                onClick={handleImportMerge} disabled={importing}>Hozzáadás</button>
               <button style={{ background:"rgba(252,165,165,0.15)", border:"1px solid rgba(252,165,165,0.4)", borderRadius:theme.radius.md, padding:"9px 14px", color:theme.accent.red, cursor:"pointer", fontSize:13, fontWeight:700, fontFamily:"inherit" }}
-                onClick={handleImportReplace}>Csere (régi törlődik)</button>
+                onClick={handleImportReplace} disabled={importing}>Csere (régi törlődik)</button>
             </div>
           </div>
         </Modal>
@@ -165,14 +167,14 @@ export function AppModals({
       )}
 
       {/* Eladás */}
-      {sellInv && <SellModal inv={sellInv} onSell={handleSell} onClose={() => setSellInv(null)} />}
+      {sellInv && <SellModal inv={sellInv} fxRates={fxRates} onSell={handleSell} onClose={() => setSellInv(null)} />}
 
       {/* Egyéb */}
       {showTxLog   && <TransactionLog onClose={() => setShowTxLog(false)} />}
-      {showAI      && <AIAnalysis investments={investments} onClose={() => setShowAI(false)} />}
+      {showAI      && <AIAnalysis investments={investments} fxRates={fxRates} onClose={() => setShowAI(false)} />}
       {showLog     && <LogModal onClose={() => setShowLog(false)} />}
       {featureModal && (
-        <FeatureModal feature={featureModal} investments={investments}
+        <FeatureModal feature={featureModal} investments={investments} fxRates={fxRates}
           onClose={() => setFeatureModal(null)}
           onSwitchPortfolio={handleSwitchPortfolio} />
       )}

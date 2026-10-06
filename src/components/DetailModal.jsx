@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { CATEGORY_COLORS } from "../constants";
-import { calcPnL, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum } from "../utils";
+import { calcPnL, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum, getQuoteStatus } from "../utils";
 import { StockChart } from "./StockChart";
 import { THEME as T } from "../design-system";
 
@@ -56,8 +56,10 @@ export function DetailModal({ inv, closedPositions = [], onClose, onEdit }) {
   const [tab, setTab] = useState("chart");
   const { value, abs, pct } = calcPnL(inv);
   const up = abs >= 0;
-  const annualDividend = inv.currentPrice > 0 && inv.dividendYield
-    ? (parseFloat(inv.dividendYield) / 100) * inv.currentPrice * inv.quantity : 0;
+  const quoteStatus = getQuoteStatus(inv);
+  const quoteUnavailable = quoteStatus === "missing" || quoteStatus === "unsupported";
+  const annualDividend = !quoteUnavailable && inv.currentPrice > 0 && inv.dividendYield
+    ? (parseFloat(inv.dividendYield) / 100) * inv.currentPrice * (inv.quantity || calcTotalQty(inv.lots||[])) : 0;
 
   const TABS = [
     { id: "chart", label: "📈 Grafikon" },
@@ -93,9 +95,13 @@ export function DetailModal({ inv, closedPositions = [], onClose, onEdit }) {
           {/* Quick stats */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
             {[
-              { l: "Piaci érték", v: fmtNum(value, 0),                       c: "#E6EDF3" },
-              { l: "P&L",         v: (up?"+":"") + fmtNum(pct,2) + "%",      c: up ? "#6EE7B7" : "#FCA5A5" },
-              { l: "P&L összeg",  v: (up?"+":"") + fmtNum(abs,0),            c: up ? "#6EE7B7" : "#FCA5A5" },
+              { l: "Piaci érték",
+                v: quoteUnavailable
+                  ? (quoteStatus === "unsupported" ? "⚠️ Nem támogatott tőzsde" : "⚠️ Frissítés szükséges")
+                  : fmtNum(value, 0) + " " + inv.currency,
+                c: quoteUnavailable ? "#FCA5A5" : "#E6EDF3" },
+              { l: "P&L",         v: quoteUnavailable ? "—" : (up?"+":"") + fmtNum(pct,2) + "%",      c: quoteUnavailable ? "#8B949E" : (up ? "#6EE7B7" : "#FCA5A5") },
+              { l: "P&L összeg",  v: quoteUnavailable ? "—" : (up?"+":"") + fmtNum(abs,0) + " " + inv.currency, c: quoteUnavailable ? "#8B949E" : (up ? "#6EE7B7" : "#FCA5A5") },
             ].map((s, i) => (
               <div key={i} style={{ background: "#0D1117", borderRadius: 8, padding: "8px 10px" }}>
                 <div style={{ fontSize: 9, color: "#8B949E", textTransform: "uppercase", marginBottom: 3 }}>{s.l}</div>
@@ -127,7 +133,7 @@ export function DetailModal({ inv, closedPositions = [], onClose, onEdit }) {
                 ["Átlag vételár",  fmtNum(calcAvgBuyPrice(inv.lots||[]), 0) + " " + inv.currency],
                 ["Összmennyiség",  fmtNum(calcTotalQty(inv.lots||[]), 4) + " db"],
                 ["Befektetett",    fmtNum(calcCostBasis(inv.lots||[]), 0) + " " + inv.currency],
-                ["Jelenlegi ár",   fmtNum(inv.currentPrice, 0) + " " + inv.currency],
+                ["Jelenlegi ár",   quoteUnavailable ? "—" : fmtNum(inv.currentPrice, 2) + " " + inv.currency],
                 ["Célár",          inv.targetPrice ? fmtNum(+inv.targetPrice, 0) + " " + inv.currency : "Nincs beállítva"],
                 ["Célár távolság", inv.targetPrice && inv.currentPrice > 0
                   ? ((+inv.targetPrice - inv.currentPrice) / inv.currentPrice * 100).toFixed(2) + "%" : "—"],
@@ -160,22 +166,18 @@ export function DetailModal({ inv, closedPositions = [], onClose, onEdit }) {
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text.primary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.quantity, 4)} db</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>Befizetve (HUF)</div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text.primary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.hufTotal || lot.price * lot.quantity, 0)} Ft</div>
+                          <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>Vételár ({inv.currency}/db)</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text.primary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.price, 2)} {inv.currency}</div>
                         </div>
-                        <div>
-                          <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>HUF/db vételár</div>
-                          <div style={{ fontSize: 13, color: T.text.secondary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.price, 0)} Ft</div>
-                        </div>
-                        {lot.usdPrice && (
+                        {lot.hufTotal != null && (
                           <div>
-                            <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>USD ár</div>
-                            <div style={{ fontSize: 13, color: T.text.secondary, fontFamily: "'DM Mono',monospace" }}>${fmtNum(lot.usdPrice, 2)}</div>
+                            <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>Befizetve (historikus HUF)</div>
+                            <div style={{ fontSize: 13, color: T.text.secondary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.hufTotal, 0)} Ft</div>
                           </div>
                         )}
                         {lot.impliedFxRate && (
-                          <div style={{ gridColumn: "1 / -1" }}>
-                            <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>USD/HUF árfolyam (vételkor)</div>
+                          <div>
+                            <div style={{ fontSize: 10, color: T.text.tertiary, marginBottom: 2 }}>{inv.currency}/HUF árfolyam (vételkor)</div>
                             <div style={{ fontSize: 12, color: T.text.tertiary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(lot.impliedFxRate, 2)}</div>
                           </div>
                         )}
@@ -201,8 +203,8 @@ export function DetailModal({ inv, closedPositions = [], onClose, onEdit }) {
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         {[
-                          ["Nyitás", `${cp.openDate} · $${fmtNum(cp.openUsdPrice, 2)}`],
-                          ["Zárás",  `${cp.closeDate} · $${fmtNum(cp.closeUsdPrice, 2)}`],
+                          ["Nyitás", `${cp.openDate} · ${fmtNum(cp.openPrice ?? cp.openUsdPrice, 2)} ${cp.currency || "USD"}`],
+                          ["Zárás",  `${cp.closeDate} · ${fmtNum(cp.closePrice ?? cp.closeUsdPrice, 2)} ${cp.currency || "USD"}`],
                           ["Mennyiség", fmtNum(cp.volume, 4) + " db"],
                           ["Hozam", (cp.pnlPct >= 0 ? "+" : "") + fmtNum(cp.pnlPct, 2) + "%"],
                           ["Befizetve", fmtNum(cp.purchaseHuf, 0) + " HUF"],

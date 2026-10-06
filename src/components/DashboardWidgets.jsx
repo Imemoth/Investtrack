@@ -1,34 +1,38 @@
 import { useState, useEffect, useMemo } from "react";
-import { calcPnL, fmtNum } from "../utils";
+import { calcPnLHuf, fmtNum } from "../utils";
 import { CATEGORY_COLORS, POSITION_PALETTE } from "../constants";
 import { fetchOHLCV } from "./StockChart";
 import { THEME as T, glassCard } from "../design-system";
 import { TickerSearch } from "./TickerSearch";
 
 // ─── TOP WINNERS / LOSERS ─────────────────────────────────────────────────────
-export function TopMovers({ investments }) {
+export function TopMovers({ investments, fxRates = {} }) {
   const [openWinners, setOpenWinners] = useState(false);
   const [openLosers,  setOpenLosers]  = useState(false);
 
-  const totalValue = useMemo(() =>
-    investments.reduce((s, i) => s + calcPnL(i).value, 0),
-  [investments]);
-
   const sorted = useMemo(() =>
     [...investments]
-      .filter(i => i.currentPrice > 0)
-      .map(i => ({ ...i, ...calcPnL(i) }))
+      .map(i => {
+        const p = calcPnLHuf(i, fxRates);
+        return { ...i, value: p.valueHuf, abs: p.pnlHuf, pct: p.pnlPct, valuationAvailable: p.valuationAvailable };
+      })
+      .filter(i => i.valuationAvailable)
       .sort((a, b) => b.pct - a.pct),
-  [investments]);
+  [investments, fxRates]);
+
+  const totalValue = useMemo(() =>
+    sorted.reduce((sum, i) => sum + i.value, 0),
+  [sorted]);
 
   if (!sorted.length) return null;
 
-  const winners = sorted.slice(0, 3);
-  const losers  = [...sorted].reverse().slice(0, 3);
+  const winners = sorted.filter(i => i.pct > 0).slice(0, 3);
+  const losers  = [...sorted].filter(i => i.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 3);
   const MEDALS  = ["🥇","🥈","🥉"];
 
-  const Row = ({ inv, rank, isWinner }) => {
+  const Row = ({ inv, rank }) => {
     const portfolioPct = totalValue > 0 ? (inv.value / totalValue) * 100 : 0;
+    const positive = inv.pct > 0;
     return (
       <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
         <span style={{ fontSize:15, width:22, textAlign:"center", flexShrink:0 }}>{MEDALS[rank]}</span>
@@ -42,11 +46,11 @@ export function TopMovers({ investments }) {
           </div>
         </div>
         <div style={{ textAlign:"right" }}>
-          <div style={{ fontSize:14, fontWeight:700, color:isWinner ? T.accent.green : T.accent.red, fontFamily:"'DM Mono',monospace" }}>
-            {isWinner?"+":""}{fmtNum(inv.pct, 2)}%
+          <div style={{ fontSize:14, fontWeight:700, color:positive ? T.accent.green : T.accent.red, fontFamily:"'DM Mono',monospace" }}>
+            {positive?"+":""}{fmtNum(inv.pct, 2)}%
           </div>
           <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
-            {isWinner?"+":""}{fmtNum(inv.abs, 0)} Ft
+            {inv.abs>0?"+":""}{fmtNum(inv.abs, 0)} Ft
           </div>
         </div>
       </div>
@@ -55,7 +59,7 @@ export function TopMovers({ investments }) {
 
   const AccordionSection = ({ isWinner, isOpen, toggle }) => {
     const list  = isWinner ? winners : losers;
-    const best  = list[0];
+    if (!list.length) return null;
     const color = isWinner ? T.accent.green : T.accent.red;
     const icon  = isWinner ? "🏆" : "📉";
     // Top 3 összesített érték és portfólió %
@@ -90,7 +94,7 @@ export function TopMovers({ investments }) {
         </button>
         {isOpen && (
           <div style={{ padding:"0 14px 10px" }}>
-            {list.map((inv, i) => <Row key={inv.id} inv={inv} rank={i} isWinner={isWinner} />)}
+            {list.map((inv, i) => <Row key={inv.id} inv={inv} rank={i} />)}
           </div>
         )}
       </div>
@@ -106,12 +110,12 @@ export function TopMovers({ investments }) {
 }
 
 // ─── CURRENCY EXPOSURE ────────────────────────────────────────────────────────
-export function CurrencyExposure({ investments }) {
+export function CurrencyExposure({ investments, fxRates = {} }) {
   const data = useMemo(() => {
     const byCurrency = {};
     investments.forEach(inv => {
-      const { value, cost } = calcPnL(inv);
-      const v = value > 0 ? value : cost; // cost basis ha nincs árfolyam
+      const p = calcPnLHuf(inv, fxRates);
+      const v = p.valuationAvailable ? p.valueHuf : p.costHuf;
       if (v <= 0) return;
       byCurrency[inv.currency] = (byCurrency[inv.currency] || 0) + v;
     });
@@ -121,7 +125,7 @@ export function CurrencyExposure({ investments }) {
     return Object.entries(byCurrency)
       .map(([cur, val]) => ({ cur, val, pct: total > 0 ? (val / total) * 100 : 0, color: CURR_COLORS[cur] || T.text.secondary, flag: FLAGS[cur] || "🌐" }))
       .sort((a, b) => b.val - a.val);
-  }, [investments]);
+  }, [investments, fxRates]);
 
   if (!data.length) return null;
 
@@ -139,7 +143,7 @@ export function CurrencyExposure({ investments }) {
               </span>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <span style={{ fontSize: 13, fontFamily: "'DM Mono',monospace", color: T.text.primary, fontWeight: 700 }}>{fmtNum(pct, 1)}%</span>
-                <span style={{ fontSize: 11, color: T.text.tertiary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(val, 0)}</span>
+                <span style={{ fontSize: 11, color: T.text.tertiary, fontFamily: "'DM Mono',monospace" }}>{fmtNum(val, 0)} Ft</span>
               </div>
             </div>
             <div style={{ height: 6, background: T.bg.inset, borderRadius: T.radius.full }}>
@@ -153,7 +157,7 @@ export function CurrencyExposure({ investments }) {
 }
 
 // ─── BENCHMARK ────────────────────────────────────────────────────────────────
-export function BenchmarkChart({ investments }) {
+export function BenchmarkChart({ investments, fxRates = {} }) {
   const [benchData, setBenchData] = useState(null);
   const [range,     setRange]     = useState("1y");
   const [loading,   setLoading]   = useState(true);
@@ -166,10 +170,12 @@ export function BenchmarkChart({ investments }) {
   }, [range]);
 
   const portfolioReturn = useMemo(() => {
-    const total    = investments.reduce((s, i) => s + calcPnL(i).value, 0);
-    const invested = investments.reduce((s, i) => s + calcPnL(i).cost, 0);
+    const rows = investments.map(i => calcPnLHuf(i, fxRates));
+    if (!rows.length || !rows.every(p => p.valuationAvailable)) return null;
+    const total    = rows.reduce((sum, p) => sum + p.valueHuf, 0);
+    const invested = rows.reduce((sum, p) => sum + p.costHuf, 0);
     return invested > 0 ? ((total - invested) / invested) * 100 : 0;
-  }, [investments]);
+  }, [investments, fxRates]);
 
   const benchReturn = useMemo(() => {
     if (!benchData?.length) return null;
@@ -229,8 +235,8 @@ export function BenchmarkChart({ investments }) {
         const d      = benchData.map((p, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(p.close).toFixed(1)}`).join(" ");
         const color  = benchReturn >= 0 ? T.accent.blue : T.accent.red;
         // Portfólió pont
-        const portY  = py(minV + (portfolioReturn / 100) * (maxV - minV));
-        const portColor = portfolioReturn >= 0 ? T.accent.green : T.accent.red;
+        const portY  = portfolioReturn != null ? py(minV + (portfolioReturn / 100) * (maxV - minV)) : null;
+        const portColor = portfolioReturn != null && portfolioReturn >= 0 ? T.accent.green : T.accent.red;
 
         return (
           <>
@@ -248,8 +254,12 @@ export function BenchmarkChart({ investments }) {
               {/* Line */}
               <path d={d} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
               {/* Portfolio dot */}
-              <circle cx={W - PAD.r - 3} cy={portY} r="5" fill={portColor} opacity="0.9" />
-              <circle cx={W - PAD.r - 3} cy={portY} r="9" fill={portColor} opacity="0.15" />
+              {portY != null && (
+                <>
+                  <circle cx={W - PAD.r - 3} cy={portY} r="5" fill={portColor} opacity="0.9" />
+                  <circle cx={W - PAD.r - 3} cy={portY} r="9" fill={portColor} opacity="0.15" />
+                </>
+              )}
             </svg>
             <div style={{ display: "flex", gap: 16, marginTop: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: T.text.tertiary }}>
@@ -267,14 +277,22 @@ export function BenchmarkChart({ investments }) {
 }
 
 // ─── RISK-RETURN ──────────────────────────────────────────────────────────────
-export function RiskReturn({ investments }) {
+export function RiskReturn({ investments, fxRates = {} }) {
   const data = useMemo(() =>
-    investments.filter(i => i.currentPrice > 0 && i.buyPrice > 0).map((i, idx) => {
-      const { pct, value } = calcPnL(i);
-      const days = i.buyDate ? Math.max(1, (Date.now() - new Date(i.buyDate)) / 86400000) : 365;
-      return { ...i, returnPct: pct, risk: Math.min(Math.abs(pct) / Math.sqrt(days / 365) / 10, 100), value, color: POSITION_PALETTE[idx % POSITION_PALETTE.length] };
-    }),
-  [investments]);
+    investments.map((i, idx) => {
+      const p = calcPnLHuf(i, fxRates);
+      if (!p.valuationAvailable) return null;
+      const buyDate = i.buyDate || i.lots?.map(l => l.date).filter(Boolean).sort()[0];
+      const days = buyDate ? Math.max(1, (Date.now() - new Date(buyDate)) / 86400000) : 365;
+      return {
+        ...i,
+        returnPct: p.pnlPct,
+        risk: Math.min(Math.abs(p.pnlPct) / Math.sqrt(days / 365) / 10, 100),
+        value: p.valueHuf,
+        color: POSITION_PALETTE[idx % POSITION_PALETTE.length],
+      };
+    }).filter(Boolean),
+  [investments, fxRates]);
 
   if (data.length < 2) return null;
 
@@ -328,12 +346,12 @@ const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", curre
 const TYPE_COLOR  = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
 export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", initialOrders, onSaveOrder, onDeleteOrder, onConvertOrder }) {
-  const [orders,    setOrders]    = useState(() => initialOrders?.length ? initialOrders : loadPending());
+  const externallyManaged = Array.isArray(initialOrders);
+  const [orders, setOrders] = useState(() => externallyManaged ? initialOrders : loadPending());
 
   useEffect(() => {
-    if (initialOrders?.length) {
+    if (Array.isArray(initialOrders)) {
       setOrders(initialOrders);
-      savePending(initialOrders);
     }
   }, [initialOrders]);
   const [showAdd,      setShowAdd]      = useState(false);
@@ -394,14 +412,16 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", initialOr
       savedFxRate: impliedFx || null,
     };
     const next = [...orders, order];
-    setOrders(next); savePending(next);
+    setOrders(next);
+    if (!externallyManaged) savePending(next);
     onSaveOrder?.(order);
     setForm(EMPTY_ORDER); setShowAdd(false);
   };
 
   const removeOrder = id => {
     const next = orders.filter(o => o.id !== id);
-    setOrders(next); savePending(next);
+    setOrders(next);
+    if (!externallyManaged) savePending(next);
     onDeleteOrder?.(id);
   };
 

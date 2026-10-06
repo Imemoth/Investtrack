@@ -1,4 +1,5 @@
 import { appLog } from "./logger";
+import { getExpectedCurrency, isSupportedExchange } from "./xtbImporter";
 
 const CORS_PROXIES = [
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -27,7 +28,31 @@ async function fetchWithProxyFallback(yahooUrl) {
   throw lastError;
 }
 
-export async function fetchYahooPrice(ticker) {
+// Yahoo quote normalizálás + szigorú devizaellenőrzés.
+// London Yahoo quote: GBX (pence) → GBP (font) / 100.
+export function normalizeYahooQuote({ price, currency, exchange }, expectedCurrency = null) {
+  let normalizedPrice = price;
+  let normalizedCurrency = currency;
+
+  if (currency === "GBX") {
+    normalizedPrice = price / 100;
+    normalizedCurrency = "GBP";
+  }
+
+  if (expectedCurrency && normalizedCurrency && normalizedCurrency !== expectedCurrency) {
+    throw new Error(`Deviza eltérés: várt ${expectedCurrency}, kapott ${normalizedCurrency}`);
+  }
+
+  return {
+    price: normalizedPrice,
+    currency: normalizedCurrency,
+    exchange,
+    rawPrice: price,
+    rawCurrency: currency,
+  };
+}
+
+export async function fetchYahooPrice(ticker, expectedCurrency = null) {
   const hosts = ["query1", "query2"];
   let lastError;
   for (const host of hosts) {
@@ -39,8 +64,13 @@ export async function fetchYahooPrice(ticker) {
       if (!meta) throw new Error("Üres chart result");
       const price = meta.regularMarketPrice ?? meta.chartPreviousClose;
       if (!price) throw new Error(`Nincs ár a válaszban`);
-      appLog.info(`✓ ${ticker} = ${price} ${meta.currency}`);
-      return { price, currency: meta.currency, exchange: meta.exchangeName };
+
+      const quote = normalizeYahooQuote(
+        { price, currency: meta.currency, exchange: meta.exchangeName },
+        expectedCurrency,
+      );
+      appLog.info(`✓ ${ticker} = ${quote.price} ${quote.currency}`);
+      return quote;
     } catch (e) {
       appLog.error(`✗ ${ticker} (${host}) sikertelen`, e.message);
       lastError = e;
@@ -49,9 +79,35 @@ export async function fetchYahooPrice(ticker) {
   throw lastError;
 }
 
+// Frankfurter API (ECB alapú, CORS-proxy nélkül) az elsődleges devizaforrás
+async function fetchFxRatesFrankfurter() {
+  const res = await fetch(
+    "https://api.frankfurter.dev/v1/latest?base=HUF&symbols=USD,EUR,GBP,PLN,SEK,DKK,NOK",
+    { signal: AbortSignal.timeout(8000) }
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const r = data.rates; // { USD: 0.00267, EUR: 0.00247, GBP: 0.00205 }
+  if (!r?.USD) throw new Error("Üres Frankfurter válasz");
+  const toHuf = rate => Number.isFinite(rate) && rate > 0
+    ? Math.round((1 / rate) * 10000) / 10000
+    : null;
+  return {
+    HUF: 1,
+    USD: toHuf(r.USD),
+    EUR: toHuf(r.EUR),
+    GBP: toHuf(r.GBP),
+    PLN: toHuf(r.PLN),
+    SEK: toHuf(r.SEK),
+    DKK: toHuf(r.DKK),
+    NOK: toHuf(r.NOK),
+  };
+}
+
+// Yahoo Finance fallback az FX lekéréshez
 async function fetchFxRatesYahoo() {
-  const pairs = ["USDHUF=X", "EURHUF=X", "GBPHUF=X"];
-  const rates  = { USD: 1, EUR: 1, GBP: 1, HUF: 1 };
+  const pairs = ["USDHUF=X", "EURHUF=X", "GBPHUF=X", "PLNHUF=X", "SEKHUF=X", "DKKHUF=X", "NOKHUF=X"];
+  const rates  = { USD: null, EUR: null, GBP: null, PLN: null, SEK: null, DKK: null, NOK: null, HUF: 1 };
   for (const pair of pairs) {
     try {
       const data     = await fetchYahooPrice(pair);
@@ -68,20 +124,7 @@ async function fetchFxRatesYahoo() {
 
 export async function fetchFxRates() {
   try {
-    const res = await fetch(
-      "https://api.frankfurter.dev/v1/latest?base=HUF&symbols=USD,EUR,GBP",
-      { signal: AbortSignal.timeout(8000) }
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const r = data.rates; // { USD: 0.00267, EUR: 0.00247, GBP: 0.00205 }
-    if (!r?.USD) throw new Error("Üres Frankfurter válasz");
-    const rates = {
-      HUF: 1,
-      USD: Math.round(1 / r.USD),
-      EUR: Math.round(1 / r.EUR),
-      GBP: Math.round(1 / r.GBP),
-    };
+    const rates = await fetchFxRatesFrankfurter();
     appLog.info(`✓ Frankfurter FX: USD=${rates.USD}, EUR=${rates.EUR}, GBP=${rates.GBP}`);
     return rates;
   } catch (e) {
@@ -97,18 +140,32 @@ export async function refreshAllPrices(investments, onProgress) {
 
   onProgress?.("Devizaárfolyamok...");
   const fxRates = await fetchFxRates();
-  appLog.info(`FX rates: USD=${fxRates.USD}, EUR=${fxRates.EUR}`);
+  appLog.info(`FX rates: USD=${fxRates.USD}, EUR=${fxRates.EUR}, GBP=${fxRates.GBP}, PLN=${fxRates.PLN}, SEK=${fxRates.SEK}, DKK=${fxRates.DKK}, NOK=${fxRates.NOK}`);
 
   for (let i = 0; i < withTicker.length; i++) {
     const inv = withTicker[i];
     onProgress?.(`${inv.ticker} (${i + 1}/${withTicker.length})`);
     try {
-      const data       = await fetchYahooPrice(inv.ticker);
-      let finalPrice   = data.price;
+      if (inv.xtbTicker && !isSupportedExchange(inv.xtbTicker)) {
+        throw new Error(`Nem támogatott XTB tőzsde: ${inv.xtbTicker}`);
+      }
+
+      // Imported holdings must match their mapped exchange currency.
+      // Manual HUF holdings may intentionally fetch a foreign quote and convert it.
+      const expectedCurrency = inv.xtbTicker
+        ? getExpectedCurrency(inv.xtbTicker)
+        : (inv.currency === "HUF" ? null : inv.currency);
+      const data = await fetchYahooPrice(inv.ticker, expectedCurrency);
+      let finalPrice = data.price;
+
+      // For HUF-denominated positions: convert normalized native price to HUF.
       if (inv.currency === "HUF" && data.currency && data.currency !== "HUF") {
-        const rate = fxRates[data.currency] || 1;
-        finalPrice = data.price * rate;
-        appLog.info(`✓ ${inv.ticker}: ${data.price} ${data.currency} × ${rate} = ${finalPrice.toFixed(0)} HUF`);
+        const yahooFx = fxRates[data.currency];
+        if (!Number.isFinite(yahooFx) || yahooFx <= 0) {
+          throw new Error(`Nincs ${data.currency}/HUF árfolyam`);
+        }
+        finalPrice = data.price * yahooFx;
+        appLog.info(`✓ ${inv.ticker}: ${data.price} ${data.currency} × ${yahooFx} = ${finalPrice.toFixed(0)} HUF`);
       }
       results.set(inv.ticker.toUpperCase(), {
         nativePrice:    data.price,

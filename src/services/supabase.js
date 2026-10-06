@@ -2,6 +2,7 @@
 // Supabase kliens + összes adat művelet
 
 import { createClient } from "@supabase/supabase-js";
+import { investmentToDb, dbToInvestment } from "../utils/investmentSerializer";
 
 const SUPABASE_URL  = "https://mvuavscjumcsxwntfegi.supabase.co";
 const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12dWF2c2NqdW1jc3h3bnRmZWdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAxNjgyMDEsImV4cCI6MjA5NTc0NDIwMX0.ks1sShaisxeO_cUz7aubBdwFHkAHF5UOoqnUnA1t7hk";
@@ -45,22 +46,42 @@ export async function fetchInvestments() {
   return data.map(dbToInvestment);
 }
 
+// Quote-state columns added by migration — strip them for graceful pre-migration fallback
+const QUOTE_STATE_COLS = ["quote_status", "refreshed_at", "native_price", "native_currency", "xtb_ticker"];
+function stripQuoteState(row) {
+  const r = { ...row };
+  for (const k of QUOTE_STATE_COLS) delete r[k];
+  return r;
+}
+
 // Egy befektetés upsert (insert vagy update)
 export async function upsertInvestment(inv) {
   const userId = await getUserId();
-  const { error } = await supabase
-    .from("investments")
-    .upsert(investmentToDb(inv, userId), { onConflict: "id" });
-  if (error) throw error;
+  const row = investmentToDb(inv, userId);
+  const { error } = await supabase.from("investments").upsert(row, { onConflict: "id" });
+  if (!error) return;
+  // Column doesn't exist yet → migration pending; retry without quote-state fields
+  if (error.code === "42703" || error.message?.includes("column")) {
+    const { error: e2 } = await supabase.from("investments").upsert(stripQuoteState(row), { onConflict: "id" });
+    if (e2) throw e2;
+  } else {
+    throw error;
+  }
 }
 
-export async function upsertInvestments(invs) {
+export async function upsertInvestments(invs, ownerId) {
   if (!invs.length) return;
-  const userId = await getUserId();
-  const { error } = await supabase
-    .from("investments")
-    .upsert(invs.map(i => investmentToDb(i, userId)), { onConflict: "id" });
-  if (error) throw error;
+  const userId = ownerId || await getUserId();
+  const rows = invs.map(i => investmentToDb(i, userId));
+  const { error } = await supabase.from("investments").upsert(rows, { onConflict: "id" });
+  if (!error) return;
+  if (error.code === "42703" || error.message?.includes("column")) {
+    const compat = rows.map(stripQuoteState);
+    const { error: e2 } = await supabase.from("investments").upsert(compat, { onConflict: "id" });
+    if (e2) throw e2;
+  } else {
+    throw error;
+  }
 }
 
 // Befektetés törlése
@@ -69,6 +90,27 @@ export async function deleteInvestment(id) {
     .from("investments")
     .delete()
     .eq("id", id);
+  if (error) throw error;
+}
+
+// Minden olyan befektetés törlése, amely nincs az átadott ID-listában.
+export async function deleteInvestmentsExcept(ids, ownerId) {
+  const userId = ownerId || await getUserId();
+  const { data, error: selectError } = await supabase
+    .from("investments")
+    .select("id")
+    .eq("user_id", userId);
+  if (selectError) throw selectError;
+
+  const keptIds = new Set(ids);
+  const staleIds = data.map(row => row.id).filter(id => !keptIds.has(id));
+  if (!staleIds.length) return;
+
+  const { error } = await supabase
+    .from("investments")
+    .delete()
+    .eq("user_id", userId)
+    .in("id", staleIds);
   if (error) throw error;
 }
 
@@ -83,47 +125,11 @@ export async function deleteAllInvestments() {
   if (error) throw error;
 }
 
-// DB ↔ App konverzió
+// DB ↔ App konverzió (investmentToDb/dbToInvestment → src/utils/investmentSerializer.js)
 async function getUserId() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Nincs bejelentkezett felhasználó");
   return user.id;
-}
-
-function investmentToDb(inv, userId) {
-  return {
-    id:             inv.id,
-    user_id:        userId,
-    name:           inv.name,
-    ticker:         inv.ticker || null,
-    category:       inv.category || "Részvény",
-    currency:       inv.currency || "HUF",
-    current_price:  inv.currentPrice || 0,
-    realized_pnl:   inv.realizedPnL || 0,
-    dividend_yield: inv.dividendYield ? parseFloat(inv.dividendYield) : null,
-    target_price:   inv.targetPrice  ? parseFloat(inv.targetPrice)   : null,
-    notes:          inv.notes || null,
-    lots:           inv.lots  || [],
-    sales:          inv.sales || [],
-  };
-}
-
-function dbToInvestment(row) {
-  return {
-    id:            row.id,
-    name:          row.name,
-    ticker:        row.ticker || "",
-    category:      row.category || "Részvény",
-    currency:      row.currency || "HUF",
-    currentPrice:  row.current_price  || 0,
-    realizedPnL:   row.realized_pnl   || 0,
-    dividendYield: row.dividend_yield || "",
-    targetPrice:   row.target_price   || "",
-    notes:         row.notes || "",
-    lots:          row.lots  || [],
-    sales:         row.sales || [],
-    createdAt:     row.created_at,
-  };
 }
 
 // ─── CLOSED POSITIONS ─────────────────────────────────────────────────────────

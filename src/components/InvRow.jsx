@@ -11,9 +11,10 @@ function fmtRelativeTime(isoStr) {
   return new Date(isoStr).toLocaleDateString("hu-HU");
 }
 
-export function InvRow({ inv, value, abs, pct, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete, onRefresh, isRefreshing }) {
+export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, valuationAvailable = true, hasEstimatedCost = false, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete, onRefresh, isRefreshing }) {
   const [open, setOpen] = useState(false);
-  const color = up ? theme.accent.green : theme.accent.red;
+  const unavailableQuote = quoteStatus === "missing" || quoteStatus === "unsupported" || !valuationAvailable;
+  const color = unavailableQuote ? theme.text.tertiary : (up ? theme.accent.green : theme.accent.red);
 
   return (
     <div style={{ borderBottom:`1px solid ${theme.border.subtle}` }}>
@@ -36,10 +37,14 @@ export function InvRow({ inv, value, abs, pct, avgBuyPrice, quantity, up, theme,
           </div>
         </div>
         <div style={{ fontSize:13, fontWeight:700, color:theme.text.primary, fontFamily:"'DM Mono',monospace", textAlign:"right" }}>
-          {fmtNum(value, 0)}
+          {valuationAvailable ? fmtNum(value, 0) + " Ft" : "—"}
         </div>
         <div style={{ fontSize:13, fontWeight:700, color, fontFamily:"'DM Mono',monospace", textAlign:"right", minWidth:60 }}>
-          {up?"+":""}{fmtNum(pct, 2)}%
+          {unavailableQuote
+            ? <span style={{ color:"#FCA5A5", fontSize:10 }}>
+                {quoteStatus === "unsupported" ? "⚠️ nem támogatott" : "⚠️ frissíts"}
+              </span>
+            : <>{hasEstimatedCost ? "≈ " : ""}{up?"+":""}{fmtNum(pct, 2)}%</>}
         </div>
         <span style={{ color:theme.text.tertiary, fontSize:10 }}>{open?"▲":"▼"}</span>
       </div>
@@ -50,7 +55,7 @@ export function InvRow({ inv, value, abs, pct, avgBuyPrice, quantity, up, theme,
             {[
               ["Vételár",    fmtNum(avgBuyPrice, 2) + " " + inv.currency],
               ["Mennyiség",  fmtNum(quantity, quantity%1===0 ? 0 : 4) + " db"],
-              ["P&L összeg", (up?"+":"")+fmtNum(abs,0)+" Ft"],
+              ["P&L (HUF)",  unavailableQuote ? (quoteStatus === "unsupported" ? "— nem támogatott tőzsde" : "— frissítés kell") : (pnlHuf >= 0?"+":"")+fmtNum(pnlHuf,0)+" Ft"],
             ].map(([l,v]) => (
               <div key={l}>
                 <div style={{ fontSize:9, color:theme.text.tertiary, textTransform:"uppercase", marginBottom:2 }}>{l}</div>

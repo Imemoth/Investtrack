@@ -35,7 +35,7 @@ export function calcCostBasis(lots = []) {
   return lots.reduce((s, l) => s + (parseFloat(l.price) || 0) * (parseFloat(l.quantity) || 0), 0);
 }
 
-// P&L számítás – lot-alapú
+// P&L számítás – lot-alapú, natív devizában
 export function calcPnL(inv) {
   const lots       = inv.lots || [];
   const totalQty   = calcTotalQty(lots);
@@ -64,6 +64,117 @@ export function calcPnL(inv) {
     realizedAbs,
     totalAbs,
   };
+}
+
+// HUF-normált P&L számítás portfólió összesítőkhöz
+// fxRates: { USD: 385, EUR: 420, GBP: 475, HUF: 1 }
+//
+// Bekerülési ár prioritásrend (sosem kever aktuális árfolyamot a historikus adatba):
+//   1. lot.hufTotal  – XTB Cash Operations vagy manuál Ft bevitel (immutable)
+//   2. lot.hufPerShare × qty – XTB-ből számított per-share historikus HUF
+//   3. lot.impliedFxRate × price × qty – vételkori árfolyam × natív ár
+//   4. price × qty × currentFxRate – becslés, jelölve hasEstimatedCost=true
+//
+// hasEstimatedCost: ha bármelyik lot-hoz nem volt historikus HUF adat
+export function calcPnLHuf(inv, fxRates = {}) {
+  const lots = inv.lots || [];
+  const totalQty = calcTotalQty(lots);
+  const rawFxRate = inv.currency === "HUF" ? 1 : parseFloat(fxRates[inv.currency]);
+  const hasMissingFx = inv.currency !== "HUF" && (!Number.isFinite(rawFxRate) || rawFxRate <= 0);
+  const fxRate = hasMissingFx ? null : rawFxRate;
+
+  let costHuf = 0;
+  let hasEstimatedCost = false;
+  let hasUnvaluedEstimatedCost = false;
+
+  for (const l of lots) {
+    const qty = parseFloat(l.quantity) || 0;
+    if (qty <= 0) continue;
+
+    if (l.hufTotal != null && l.hufTotal > 0) {
+      costHuf += l.hufTotal;
+    } else if (l.hufPerShare != null && l.hufPerShare > 0) {
+      costHuf += l.hufPerShare * qty;
+    } else if (l.impliedFxRate != null && l.impliedFxRate > 0) {
+      costHuf += (parseFloat(l.price) || 0) * qty * l.impliedFxRate;
+    } else {
+      // Nincs historikus HUF adat — csak akkor becsülhető, ha van érvényes aktuális FX.
+      hasEstimatedCost = true;
+      if (fxRate == null) {
+        hasUnvaluedEstimatedCost = true;
+      } else {
+        costHuf += (parseFloat(l.price) || 0) * qty * fxRate;
+      }
+    }
+  }
+
+  // Aktuális piaci érték csak érvényes FX mellett számolható.
+  const quoteStatus = getQuoteStatus(inv);
+  const quoteAvailable = quoteStatus !== "missing" && quoteStatus !== "unsupported";
+  const valuationAvailable = !hasMissingFx && !hasUnvaluedEstimatedCost && quoteAvailable;
+  const valueHuf = valuationAvailable ? (inv.currentPrice || 0) * totalQty * fxRate : 0;
+  const pnlHuf   = valuationAvailable ? valueHuf - costHuf : 0;
+  const pnlPct   = valuationAvailable && costHuf > 0 ? (pnlHuf / costHuf) * 100 : 0;
+
+  return {
+    costHuf,
+    valueHuf,
+    pnlHuf,
+    pnlPct,
+    totalQty,
+    fxRate,
+    hasEstimatedCost,
+    hasMissingFx,
+    quoteStatus,
+    valuationAvailable,
+  };
+}
+
+// Árfolyam-frissítés állapota egy pozícióhoz
+// "unsupported" – ismeretlen tőzsde-szuffix, XTB-ből jön, nincs Yahoo mapping
+// "missing"     – nincs aktuális ár (currentPrice = 0/null)
+// "stale"       – van ár de nem friss (> 8 óra)
+// "fresh"       – frissen frissített (< 8 óra)
+export function getQuoteStatus(inv) {
+  if (inv.quoteStatus === "unsupported") return "unsupported";
+  if (!inv.currentPrice || inv.currentPrice <= 0) return "missing";
+  if (!inv._refreshedAt) return "stale";
+  const ageMs = Date.now() - new Date(inv._refreshedAt).getTime();
+  return ageMs < 8 * 3600 * 1000 ? "fresh" : "stale";
+}
+
+// Lot HUF bekerülési ár kiszámítása mentéskor
+// Ha a felhasználó megadott Ft összeget (amount) → hufTotal = amount
+// Ha nincs amount → becsülés aktuális fxRate-tel
+export function lotWithHufTotal(lot, fxRate = 0) {
+  const price = parseFloat(lot.price) || 0;
+  const qty   = parseFloat(lot.quantity) || 0;
+  const amt   = parseFloat(lot.amount);
+  const existingHufTotal = parseFloat(lot.hufTotal);
+
+  let hufTotal;
+  if (Number.isFinite(amt) && amt > 0) {
+    // Explicit form amount wins.
+    hufTotal = amt;
+  } else if (!lot._hufStale) {
+    // Untouched existing lot: preserve/reconstruct historical HUF cost using
+    // the same authoritative priority chain as calcPnLHuf.
+    if (Number.isFinite(existingHufTotal) && existingHufTotal > 0) {
+      hufTotal = existingHufTotal;
+    } else if (Number.isFinite(+lot.hufPerShare) && +lot.hufPerShare > 0 && qty > 0) {
+      hufTotal = +lot.hufPerShare * qty;
+    } else if (Number.isFinite(+lot.impliedFxRate) && +lot.impliedFxRate > 0 && price > 0 && qty > 0) {
+      hufTotal = price * qty * (+lot.impliedFxRate);
+    }
+  }
+
+  if (!hufTotal && Number.isFinite(fxRate) && fxRate > 0 && price > 0 && qty > 0) {
+    // New/edited lot may be estimated only when a real FX rate exists.
+    hufTotal = Math.round(price * qty * fxRate);
+  }
+
+  const { amount: _ignored, _hufStale: _stale, ...rest } = lot;
+  return { ...rest, price, quantity: qty, hufTotal: hufTotal || undefined };
 }
 
 // ─── MIGRÁCIÓ: v1 → v2 ────────────────────────────────────────────────────────

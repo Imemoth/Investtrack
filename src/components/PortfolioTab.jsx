@@ -1,7 +1,7 @@
 // components/PortfolioTab.jsx
 import { useState } from "react";
 import { CATEGORIES, CATEGORY_COLORS } from "../constants";
-import { fmtNum, fmtCurrency, calcPnL } from "../utils";
+import { fmtNum, fmtCurrency, calcPnL, calcPnLHuf, getQuoteStatus } from "../utils";
 import { glassCard } from "../design-system";
 import { DonutChart } from "./ui";
 import { Treemap } from "./Treemap";
@@ -9,7 +9,7 @@ import { InvRow } from "./InvRow";
 
 export function PortfolioTab({
   theme, investments, closedPositions,
-  stats, refreshLabel,
+  stats, refreshLabel, fxRates,
   search, setSearch, filterCat, setFilterCat,
   sortBy, setSortBy, sortDir, setSortDir,
   displayed, showClosed, setShowClosed,
@@ -23,7 +23,7 @@ export function PortfolioTab({
     <>
       {/* ── Stat kártyák ── */}
       <StatCards theme={theme} stats={stats} investments={investments}
-        closedPositions={closedPositions} refreshLabel={refreshLabel} />
+        closedPositions={closedPositions} refreshLabel={refreshLabel} fxRates={fxRates} />
 
       {/* ── Eszközosztályok chart ── */}
       <ChartSection theme={theme} stats={stats} chartMode={chartMode}
@@ -43,10 +43,16 @@ export function PortfolioTab({
           ))}
         </div>
         {displayed.map(inv => {
-          const { value, abs, pct, avgBuyPrice, quantity } = calcPnL(inv);
+          const { avgBuyPrice, quantity } = calcPnL(inv);
+          const huf = calcPnLHuf(inv, fxRates || {});
+          const quoteStatus = getQuoteStatus(inv);
           return (
-            <InvRow key={inv.id} inv={inv} value={value} abs={abs} pct={pct}
-              avgBuyPrice={avgBuyPrice} quantity={quantity} up={pct>=0} theme={theme}
+            <InvRow key={inv.id} inv={inv}
+              value={huf.valueHuf} abs={huf.pnlHuf} pct={huf.pnlPct}
+              pnlHuf={huf.pnlHuf} quoteStatus={quoteStatus}
+              valuationAvailable={huf.valuationAvailable}
+              hasEstimatedCost={huf.hasEstimatedCost}
+              avgBuyPrice={avgBuyPrice} quantity={quantity} up={huf.pnlHuf>=0} theme={theme}
               onDetail={() => onDetail(inv)} onSell={() => onSell(inv)}
               onEdit={() => onEdit(inv)} onDelete={() => onDelete(inv)}
               onRefresh={() => onRefreshSingle?.(inv)}
@@ -67,22 +73,29 @@ export function PortfolioTab({
 
 // ─── STAT KÁRTYÁK ─────────────────────────────────────────────────────────────
 function StatCards({ theme, stats, investments, closedPositions, refreshLabel }) {
+  const partialSaleCount = investments.reduce(
+    (sum, inv) => sum + (inv.sales || []).filter(s => s.pnlHuf != null).length,
+    0,
+  );
+  const hasRealized = closedPositions.length > 0 || partialSaleCount > 0;
   const cards = [
     { label: "Portfólió értéke",
       val: fmtCurrency(stats.totalValue + stats.pendingTotal, "HUF"),
-      sub: `${investments.length} pozíció${stats.pendingTotal > 0 ? ` · +${fmtNum(stats.pendingTotal,0)} Ft függőben` : ""}`,
+      sub: `${investments.length} pozíció${stats.valuationComplete ? "" : " · ⚠ részleges értékelés"}${stats.pendingTotal > 0 ? ` · +${fmtNum(stats.pendingTotal,0)} Ft függőben` : ""}`,
       color: theme.text.primary, glow: null },
     { label: "Befektetett tőke",
-      val: fmtCurrency(stats.totalCost, "HUF"),
-      sub: "Összes vételár", color: theme.text.secondary, glow: null },
+      val: (stats.costBasisComplete ? "" : "≈ ") + fmtCurrency(stats.totalCost, "HUF"),
+      sub: stats.costBasisComplete ? "Összes vételár" : "⚠ részben becsült cost basis", color: theme.text.secondary, glow: null },
     { label: "Papír nyereség",
       val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
-      sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,
+      sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%${stats.valuationComplete ? "" : " · részleges"}${stats.costBasisComplete ? "" : " · ≈ becsült cost"}`,
       color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red,
       glow: stats.totalPnL >= 0 ? "rgba(110,231,183,0.12)" : "rgba(252,165,165,0.12)" },
     { label: "💰 Realizált P&L",
-      val: closedPositions.length > 0 ? (stats.totalRealizedPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalRealizedPnL, "HUF") : "—",
-      sub: closedPositions.length > 0 ? `${closedPositions.length} lezárt` : "XTB import kell",
+      val: hasRealized ? (stats.totalRealizedPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalRealizedPnL, "HUF") : "—",
+      sub: hasRealized
+        ? [closedPositions.length > 0 ? `${closedPositions.length} lezárt` : "", partialSaleCount > 0 ? `${partialSaleCount} részleges eladás` : ""].filter(Boolean).join(" · ")
+        : "nincs realizált ügylet",
       color: stats.totalRealizedPnL >= 0 ? theme.accent.green : theme.accent.red, glow: null },
     { label: "⏳ Függőben",
       val: stats.pendingTotal > 0 ? fmtCurrency(stats.pendingTotal, "HUF") : "—",
@@ -195,7 +208,7 @@ function ClosedSection({ theme, closedPositions, showClosed, setShowClosed }) {
                 </div>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, borderTop:`1px solid ${theme.border.subtle}`, paddingTop:8 }}>
-                {[["Db",fmtNum(cp.volume,4)],["Vétel",`$${fmtNum(cp.openUsdPrice,2)}`],["Zárás",`$${fmtNum(cp.closeUsdPrice,2)}`],
+                {[["Db",fmtNum(cp.volume,4)],["Vétel",`${fmtNum(cp.openPrice??cp.openUsdPrice,2)} ${cp.currency||"USD"}`],["Zárás",`${fmtNum(cp.closePrice??cp.closeUsdPrice,2)} ${cp.currency||"USD"}`],
                   ["Befizetve",fmtNum(cp.purchaseHuf,0)+" Ft"],["Bevétel",fmtNum(cp.saleHuf,0)+" Ft"],["Dátum",cp.closeDate]].map(([l,v]) => (
                   <div key={l}>
                     <div style={{ fontSize:9, color:theme.text.tertiary, textTransform:"uppercase", marginBottom:2 }}>{l}</div>
