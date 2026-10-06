@@ -28,12 +28,22 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial });
   const [lots, setLots] = useState(initLots);
 
-  // Recalculate HUF amounts whenever currency changes (or on mount with existing lots)
+  // Recalculate HUF amounts only after an actual currency change.
+  // On initial edit-form mount, preserve the immutable historical hufTotal.
+  const didMountCurrencyRef = useRef(false);
   useEffect(() => {
+    if (!didMountCurrencyRef.current) {
+      didMountCurrencyRef.current = true;
+      return;
+    }
     const fx = getFx(form.currency);
     setLots(ls => ls.map(l => {
       const p = parseFloat(l.price), q = parseFloat(l.quantity);
-      return { ...l, amount: (p > 0 && q > 0) ? String(Math.round(p * q * fx)) : "" };
+      return {
+        ...l,
+        amount: (p > 0 && q > 0 && fx > 0) ? String(Math.round(p * q * fx)) : "",
+        _hufStale: true,
+      };
     }));
   }, [form.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
