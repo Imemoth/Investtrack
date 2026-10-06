@@ -91,14 +91,17 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
     const fullyClose = fifo.newLots.length === 0 || calcTotalQty(fifo.newLots) <= 0;
     const fxRate = getFxRate();
 
-    // Legacy partial sales created before HUF-realized fields existed cannot be
-    // reconstructed exactly for foreign-currency holdings. Refuse a final close
-    // rather than deleting the open record and silently losing realized history.
-    const unreconstructableLegacySale = fullyClose && inv.currency !== "HUF" &&
-      (inv.sales || []).some(s =>
-        !Number.isFinite(+s.pnlHuf) &&
-        !(Number.isFinite(+s.proceedsHuf) && Number.isFinite(+s.fifoHufCost))
-      );
+    // Legacy partial sales created before HUF-realized fields existed must be
+    // exactly reconstructable before the final close deletes the open record.
+    const legacySaleHasExactHufPnl = s => {
+      if (Number.isFinite(+s.pnlHuf)) return true;
+      if (Number.isFinite(+s.proceedsHuf) && Number.isFinite(+s.fifoHufCost)) return true;
+      if (inv.currency === "HUF" && Number.isFinite(+s.realizedPnL)) return true;
+      if (inv.currency === "HUF" && Number.isFinite(+s.avgCostBasis) && Number.isFinite(+s.sellPrice)) return true;
+      return false;
+    };
+    const unreconstructableLegacySale = fullyClose &&
+      (inv.sales || []).some(s => !legacySaleHasExactHufPnl(s));
     if (unreconstructableLegacySale) {
       setSellError("Korábbi részleges eladás HUF eredménye nem rekonstruálható pontosan. Importáld újra az XTB előzményt vagy javítsd a legacy eladási adatot a teljes zárás előtt.");
       return;
@@ -137,6 +140,7 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
       const saleProceedsHuf = s => {
         if (Number.isFinite(+s.proceedsHuf)) return +s.proceedsHuf;
         if (inv.currency === "HUF" && Number.isFinite(+s.sellPrice)) return (+s.sellPrice) * saleQty(s);
+        if (inv.currency === "HUF" && Number.isFinite(+s.proceeds)) return +s.proceeds;
         const cost = saleCostHuf(s);
         if (cost != null && Number.isFinite(+s.pnlHuf)) return cost + (+s.pnlHuf);
         return null;
@@ -155,12 +159,12 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
       const totalSaleHuf = allSales.reduce((sum, s) => sum + (saleProceedsHuf(s) ?? 0), 0);
       const totalPnlHuf = allSales.reduce((sum, s) => sum + (salePnlHuf(s) ?? 0), 0);
       const totalNativeProceeds = allSales.reduce(
-        (sum, s) => sum + (parseFloat(s.sellPrice) || 0) * (parseFloat(s.quantity) || 0),
+        (sum, s) => sum + (parseFloat(s.sellPrice) || 0) * saleQty(s),
         0,
       );
       const totalNativeCost = allSales.reduce((sum, s) => {
         if (Number.isFinite(+s.fifoCostNative)) return sum + (+s.fifoCostNative);
-        const proceedsNative = (parseFloat(s.sellPrice) || 0) * (parseFloat(s.quantity) || 0);
+        const proceedsNative = (parseFloat(s.sellPrice) || 0) * saleQty(s);
         return sum + proceedsNative - (parseFloat(s.realizedPnL) || 0);
       }, 0);
 
