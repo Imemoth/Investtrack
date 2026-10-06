@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import { resolveYahooTicker, getExpectedCurrency, isSupportedExchange } from "../services/xtbImporter.js";
 import { calcPnLHuf, lotWithHufTotal, getQuoteStatus, calcPnL } from "../utils/index.js";
 import { investmentToDb, dbToInvestment } from "../utils/investmentSerializer.js";
+import { normalizeYahooQuote } from "../services/priceService.js";
 
 // ─── 1. XTB: missing current price must not become open price ─────────────────
 describe("XTB current price", () => {
@@ -223,8 +224,8 @@ describe("quote status prevents misleading 0% display", () => {
     const qs = getQuoteStatus(inv);
     // The value is technically 0% but UI must show warning, not 0%
     expect(qs).toBe("missing");
-    // valueHuf is 0, so pnlHuf is negative (cost without value)
-    expect(pnlPct).toBeLessThan(0); // -100% if currentPrice=0
+    // Fail-closed valuation: unavailable quotes must not manufacture a -100% loss.
+    expect(pnlPct).toBe(0);
   });
 
   it("calcPnL also returns 0 value when currentPrice missing", () => {
@@ -397,7 +398,24 @@ describe("valuation availability guards", () => {
   });
 });
 
-// ─── 15. Quote-state Supabase serialization round-trip ───────────────────────
+// ─── 15. Yahoo quote normalization and currency mismatch guard ───────────────
+describe("normalizeYahooQuote", () => {
+  it("normalizes London GBX pence to GBP pounds", () => {
+    const q = normalizeYahooQuote({ price: 1234, currency: "GBX", exchange: "LSE" }, "GBP");
+    expect(q.price).toBeCloseTo(12.34, 8);
+    expect(q.currency).toBe("GBP");
+    expect(q.rawPrice).toBe(1234);
+    expect(q.rawCurrency).toBe("GBX");
+  });
+
+  it("rejects non-intentional quote currency mismatches", () => {
+    expect(() =>
+      normalizeYahooQuote({ price: 100, currency: "CHF", exchange: "SIX" }, "USD")
+    ).toThrow(/Deviza eltérés/);
+  });
+});
+
+// ─── 16. Quote-state Supabase serialization round-trip ───────────────────────
 describe("quote-state serialization round-trip", () => {
   const BASE = {
     id: "inv-1", name: "ASML", ticker: "ASML.AS", xtbTicker: "ASML.NL",
