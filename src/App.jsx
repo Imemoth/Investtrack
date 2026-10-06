@@ -551,9 +551,11 @@ export default function App() {
   const stats = useMemo(() => {
     const pnlData    = investments.map(i => calcPnLHuf(i, fxRates));
     const totalCost  = pnlData.reduce((s, p) => s + p.costHuf, 0);
-    const totalValue = pnlData.reduce((s, p) => s + p.valueHuf, 0);
-    const totalPnL   = totalValue - totalCost;
-    const totalPct   = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
+    const valuedData = pnlData.filter(p => p.valuationAvailable);
+    const totalValue = valuedData.reduce((s, p) => s + p.valueHuf, 0);
+    const totalPnL   = valuedData.reduce((s, p) => s + p.pnlHuf, 0);
+    const valuedCost = valuedData.reduce((s, p) => s + p.costHuf, 0);
+    const totalPct   = valuedCost > 0 ? (totalPnL / valuedCost) * 100 : 0;
 
     const catBreakdown = CATEGORIES
       .map(c => {
