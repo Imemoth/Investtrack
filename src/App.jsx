@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
-import { fmtNum, fmtCurrency, calcPnL, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll, uid } from "./utils";
+import { fmtNum, fmtCurrency, calcPnL, calcPnLHuf, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll, uid } from "./utils";
 import { refreshAllPrices, fetchYahooPrice, fetchFxRates } from "./services/priceService";
 import { parseXTBFile } from "./services/xtbImporter";
 import {
@@ -200,8 +200,9 @@ export default function App() {
         const lastSnapDate = localStorage.getItem("investtrack_last_snapshot_date");
         const migratedInvs = migrateAll(invs);
         if (lastSnapDate !== today && migratedInvs.some(i => (i.currentPrice ?? 0) > 0)) {
-          const snapValue = migratedInvs.reduce((s, i) => s + calcPnL(i).value, 0);
-          const snapCost  = migratedInvs.reduce((s, i) => s + calcPnL(i).cost, 0);
+          const cachedFx  = JSON.parse(localStorage.getItem("investtrack_fx") || "{}");
+          const snapValue = migratedInvs.reduce((s, i) => s + calcPnLHuf(i, cachedFx).valueHuf, 0);
+          const snapCost  = migratedInvs.reduce((s, i) => s + calcPnLHuf(i, cachedFx).costHuf, 0);
           savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
           localStorage.setItem("investtrack_last_snapshot_date", today);
         }
@@ -236,11 +237,12 @@ export default function App() {
         localStorage.setItem("investtrack_fx", JSON.stringify(newFxRates));
       }
       if (!results.size) { showToast("❌ Minden lekérés sikertelen!", "error"); return; }
+      const refreshedAt = new Date().toISOString();
       const updated = investments.map(inv => {
         const hit = results.get(inv.ticker?.toUpperCase());
         if (!hit) return inv;
         const newPrice = inv.currency === "HUF" ? hit.hufPrice : hit.nativePrice;
-        return { ...inv, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency, _refreshedAt: new Date().toISOString() };
+        return { ...inv, currentPrice: newPrice, _nativePrice: hit.nativePrice, _nativeCurrency: hit.nativeCurrency, _refreshedAt: refreshedAt, quoteStatus: "fresh" };
       });
       // Célár riasztás
       updated.forEach(inv => {
@@ -252,11 +254,12 @@ export default function App() {
         if (wasBelow && nowAbove) showToast(`🎯 ${inv.name} elérte a célárat!`, "success");
       });
       setInvestments(updated);
-      // Portfólió snapshot mentése
+      // Portfólió snapshot + Supabase szinkron
       if (user) {
-        const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
-        const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
+        const snapValue = updated.reduce((s, i) => s + calcPnLHuf(i, newFxRates).valueHuf, 0);
+        const snapCost  = updated.reduce((s, i) => s + calcPnLHuf(i, newFxRates).costHuf, 0);
         savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        upsertInvestments(updated).catch(e => console.warn("Árfrissítés szinkron hiba:", e.message));
       }
       const ok = results.size, fail = errors.length;
       const now = new Date();
@@ -304,17 +307,21 @@ export default function App() {
       const data = await fetchYahooPrice(inv.ticker);
       let finalPrice = data.price;
       if (needsFx && data.currency && data.currency !== "HUF") {
-        finalPrice = data.price * (fxRates[data.currency] || 1);
+        const yahooFx = data.currency === "GBX" ? (fxRates.GBP || 1) / 100 : (fxRates[data.currency] || 1);
+        finalPrice = data.price * yahooFx;
       }
+      const refreshedAt = new Date().toISOString();
       const updated = investments.map(i => i.id === inv.id
-        ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: new Date().toISOString() }
+        ? { ...i, currentPrice: finalPrice, _nativePrice: data.price, _nativeCurrency: data.currency, _refreshedAt: refreshedAt, quoteStatus: "fresh" }
         : i
       );
       setInvestments(updated);
       if (user) {
-        const snapValue = updated.reduce((s, i) => s + calcPnL(i).value, 0);
-        const snapCost  = updated.reduce((s, i) => s + calcPnL(i).cost, 0);
+        const snapValue = updated.reduce((s, i) => s + calcPnLHuf(i, fxRates).valueHuf, 0);
+        const snapCost  = updated.reduce((s, i) => s + calcPnLHuf(i, fxRates).costHuf, 0);
         savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
+        const updInv = updated.find(i => i.id === inv.id);
+        if (updInv) upsertInvestment(updInv).catch(e => console.warn("Egyedi frissítés szinkron:", e.message));
       }
       showToast(`✓ ${inv.ticker} frissítve!`, "success");
     } catch (e) {
@@ -359,25 +366,35 @@ export default function App() {
     showToast("Portfólió törölve!", "info");
   };
 
-  const handleSell = async ({ updatedInv, sale, fullyClose }) => {
+  const handleSell = async ({ updatedInv, sale, fullyClose, closedPosition }) => {
     setInvestments(prev => {
       if (fullyClose) return prev.filter(i => i.id !== updatedInv.id);
       return prev.map(i => i.id === updatedInv.id ? updatedInv : i);
     });
+    if (closedPosition) {
+      setClosedPositions(prev => [...prev, closedPosition]);
+    }
     setSellInv(null);
     addTransaction({ ...updatedInv, ...sale }, "sell");
     if (user) {
       try {
-        if (fullyClose) await deleteInvestment(updatedInv.id);
-        else            await upsertInvestment(updatedInv);
+        if (fullyClose) {
+          await deleteInvestment(updatedInv.id);
+          if (closedPosition) await upsertClosedPositions([closedPosition]);
+        } else {
+          await upsertInvestment(updatedInv);
+        }
       } catch(e) { console.warn("Eladás sync hiba:", e.message); }
     }
-    const pnlStr = (sale.realizedPnL >= 0 ? "+" : "") + fmtNum(sale.realizedPnL, 0) + " " + sale.currency;
-    showToast(`Eladás rögzítve! Realizált P&L: ${pnlStr}`, sale.realizedPnL >= 0 ? "success" : "info");
+    const pnlHufStr = sale.pnlHuf != null
+      ? `${sale.pnlHuf >= 0 ? "+" : ""}${fmtNum(sale.pnlHuf, 0)} HUF`
+      : `${sale.realizedPnL >= 0 ? "+" : ""}${fmtNum(sale.realizedPnL, 0)} ${sale.currency}`;
+    showToast(`Eladás rögzítve! Realizált P&L: ${pnlHufStr}`, sale.realizedPnL >= 0 ? "success" : "info");
   };
 
   // ── CRUD ──
   const saveInvestment = useCallback(inv => {
+    const isEdit = !!editing;
     setInvestments(prev => {
       const idx = prev.findIndex(i => i.id === inv.id);
       if (idx >= 0) {
@@ -387,9 +404,10 @@ export default function App() {
       addTransaction(inv, "buy");
       return [...prev, inv];
     });
+    if (user) upsertInvestment(inv).catch(e => console.warn("Mentés szinkron hiba:", e.message));
     setModal(null); setEditing(null);
-    showToast(editing ? "Befektetés frissítve!" : "Befektetés hozzáadva!");
-  }, [editing]);
+    showToast(isEdit ? "Befektetés frissítve!" : "Befektetés hozzáadva!");
+  }, [editing, user]);
 
   const handleConvertOrder = (order, { price, quantity, date }) => {
     const actualPrice = parseFloat(price) || order.limitPrice || 0;
@@ -415,6 +433,7 @@ export default function App() {
     if (inv) addTransaction(inv, "sell");
     setInvestments(prev => prev.filter(i => i.id !== id));
     setConfirmDelete(null);
+    if (user) deleteInvestment(id).catch(e => console.warn("Törlés szinkron hiba:", e.message));
     showToast("Befektetés törölve.", "info");
   };
 
@@ -528,21 +547,20 @@ export default function App() {
     e.target.value = "";
   };
 
-  // ── Stats ──
+  // ── Stats ── (minden összeg HUF-ban, fxRates alapján normalizálva)
   const stats = useMemo(() => {
-    const pnlData    = investments.map(i => calcPnL(i));
-    const totalCost  = pnlData.reduce((s, p) => s + p.cost, 0);
-    const totalValue = pnlData.reduce((s, p) => s + p.value, 0);
+    const pnlData    = investments.map(i => calcPnLHuf(i, fxRates));
+    const totalCost  = pnlData.reduce((s, p) => s + p.costHuf, 0);
+    const totalValue = pnlData.reduce((s, p) => s + p.valueHuf, 0);
     const totalPnL   = totalValue - totalCost;
     const totalPct   = totalCost > 0 ? (totalPnL / totalCost) * 100 : 0;
 
     const catBreakdown = CATEGORIES
       .map(c => {
         const invs = investments.filter(i => i.category === c);
-        // Ha nincs currentPrice, cost basis alapján mutatjuk
         const v = invs.reduce((s, i) => {
-          const p = calcPnL(i);
-          return s + (p.value > 0 ? p.value : p.cost);
+          const p = calcPnLHuf(i, fxRates);
+          return s + (p.valueHuf > 0 ? p.valueHuf : p.costHuf);
         }, 0);
         return { label: c, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: CATEGORY_COLORS[c] };
       })
@@ -550,24 +568,26 @@ export default function App() {
 
     const posBreakdown = [...investments]
       .map((inv, idx) => {
-        const p = calcPnL(inv);
-        const v = p.value > 0 ? p.value : p.cost;
+        const p = calcPnLHuf(inv, fxRates);
+        const v = p.valueHuf > 0 ? p.valueHuf : p.costHuf;
         return { label: inv.ticker || inv.name, fullName: inv.name, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: POSITION_PALETTE[idx % POSITION_PALETTE.length] };
       })
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
 
+    // Realizált P&L csak HUF-ban összegezhető (XTB mindig HUF-ban adja)
     const totalRealizedPnL = investments.reduce((s, i) => s + (i.realizedPnL || 0), 0)
       + closedPositions.reduce((s, c) => s + (c.pnl || 0), 0);
-    const totalDividend    = investments.reduce((s, i) => {
+
+    const totalDividend = investments.reduce((s, i) => {
       if (!i.dividendYield || !i.currentPrice) return s;
-      return s + (parseFloat(i.dividendYield) / 100) * calcPnL(i).value;
+      return s + (parseFloat(i.dividendYield) / 100) * calcPnLHuf(i, fxRates).valueHuf;
     }, 0);
 
     const pendingTotal = pendingOrders.reduce((s, o) => s + (o.hufTotal || 0), 0);
 
     return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
-  }, [investments, closedPositions, pendingOrders]);
+  }, [investments, closedPositions, pendingOrders, fxRates]);
 
   // ── Filtered & sorted list ──
   const displayed = useMemo(() => {
@@ -703,6 +723,7 @@ export default function App() {
             investments={investments}
             closedPositions={closedPositions}
             stats={stats}
+            fxRates={fxRates}
             refreshLabel={refreshLabel}
             search={search}           setSearch={setSearch}
             filterCat={filterCat}     setFilterCat={setFilterCat}
@@ -727,6 +748,7 @@ export default function App() {
         theme={theme}
         investments={investments}
         closedPositions={closedPositions}
+        fxRates={fxRates}
         modal={modal}               setModal={setModal}
         editing={editing}           setEditing={setEditing}
         detailInv={detailInv}       setDetailInv={setDetailInv}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { CATEGORIES, CURRENCIES, EMPTY_FORM } from "../constants";
-import { uid, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum } from "../utils";
+import { uid, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum, lotWithHufTotal } from "../utils";
 import { THEME as T, glassCard, haptic } from "../design-system";
 import { TickerSearch, fetchQuoteDetails, typeToCategory } from "./TickerSearch";
 
@@ -14,7 +14,13 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
 
   const blankLot = () => ({ id: uid(), price: "", quantity: "", date: new Date().toISOString().slice(0, 10), notes: "", amount: "" });
   const initLots = initial?.lots?.length > 0
-    ? initial.lots.map(l => ({ ...l, amount: "" }))
+    ? initial.lots.map(l => ({
+        ...l,
+        price: String(l.price ?? ""),
+        quantity: String(l.quantity ?? ""),
+        // Initialize amount from saved hufTotal (immutable historical HUF cost) — not current FX
+        amount: l.hufTotal != null && l.hufTotal > 0 ? String(Math.round(l.hufTotal)) : "",
+      }))
     : initial?.buyPrice
       ? [{ id: uid(), price: String(initial.buyPrice), quantity: String(initial.quantity || ""), date: initial.buyDate || "", notes: "", amount: "" }]
       : [blankLot()];
@@ -39,10 +45,13 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
     if (key === "price" || key === "quantity") {
       const p = parseFloat(key === "price" ? val : l.price);
       const q = parseFloat(key === "quantity" ? val : l.quantity);
+      // Recompute HUF amount — user changed price/qty so hufTotal must update
       updated.amount = (p > 0 && q > 0) ? String(Math.round(p * q * fx)) : "";
+      updated._hufStale = true; // flag: hufTotal will be recomputed on save
     } else if (key === "amount") {
       const p = parseFloat(l.price), a = parseFloat(val);
       if (p > 0 && a > 0 && fx > 0) updated.quantity = String(Math.round(a / (p * fx) * 10000) / 10000);
+      updated._hufStale = false; // user explicitly set amount → hufTotal = amount
     }
     return updated;
   }));
@@ -88,9 +97,10 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
 
   const handleSave = () => {
     if (!form.name.trim()) { setFormError("Adj meg megnevezést!"); return; }
+    const fx = getFx(form.currency);
     const validLots = lots
       .filter(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0)
-      .map(l => ({ ...l, price: parseFloat(l.price), quantity: parseFloat(l.quantity) }));
+      .map(l => lotWithHufTotal(l, fx)); // canonical hufTotal saved here
     if (!validLots.length) { setFormError("Legalább egy érvényes vételi tétel kell!"); return; }
     setFormError(null);
     onSave({

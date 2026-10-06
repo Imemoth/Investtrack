@@ -11,7 +11,7 @@ function fmtRelativeTime(isoStr) {
   return new Date(isoStr).toLocaleDateString("hu-HU");
 }
 
-export function InvRow({ inv, value, abs, pct, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete, onRefresh, isRefreshing }) {
+export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete, onRefresh, isRefreshing }) {
   const [open, setOpen] = useState(false);
   const color = up ? theme.accent.green : theme.accent.red;
 
@@ -39,7 +39,9 @@ export function InvRow({ inv, value, abs, pct, avgBuyPrice, quantity, up, theme,
           {fmtNum(value, 0)}
         </div>
         <div style={{ fontSize:13, fontWeight:700, color, fontFamily:"'DM Mono',monospace", textAlign:"right", minWidth:60 }}>
-          {up?"+":""}{fmtNum(pct, 2)}%
+          {quoteStatus === "missing"
+            ? <span style={{ color:"#FCA5A5", fontSize:10 }}>⚠️ frissíts</span>
+            : <>{up?"+":""}{fmtNum(pct, 2)}%</>}
         </div>
         <span style={{ color:theme.text.tertiary, fontSize:10 }}>{open?"▲":"▼"}</span>
       </div>
@@ -50,7 +52,7 @@ export function InvRow({ inv, value, abs, pct, avgBuyPrice, quantity, up, theme,
             {[
               ["Vételár",    fmtNum(avgBuyPrice, 2) + " " + inv.currency],
               ["Mennyiség",  fmtNum(quantity, quantity%1===0 ? 0 : 4) + " db"],
-              ["P&L összeg", (up?"+":"")+fmtNum(abs,0)+" Ft"],
+              ["P&L (HUF)",  quoteStatus === "missing" ? "— frissítés kell" : (pnlHuf >= 0?"+":"")+fmtNum(pnlHuf,0)+" Ft"],
             ].map(([l,v]) => (
               <div key={l}>
                 <div style={{ fontSize:9, color:theme.text.tertiary, textTransform:"uppercase", marginBottom:2 }}>{l}</div>

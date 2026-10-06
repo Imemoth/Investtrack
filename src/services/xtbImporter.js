@@ -2,11 +2,42 @@ import * as XLSX from "xlsx";
 import { uid } from "../utils";
 import { appLog } from "./logger";
 
-function resolveYahooTicker(xtbTicker = "") {
-  if (xtbTicker.endsWith(".US"))  return xtbTicker.replace(".US", "");
-  if (xtbTicker.endsWith(".NL"))  return xtbTicker.replace(".NL", "");
-  if (xtbTicker.endsWith(".UK"))  return xtbTicker.replace(".UK", ".L");
-  return xtbTicker;
+// XTB exchange suffix → Yahoo Finance suffix + expected currency
+// Based on XTB documentation and Yahoo Finance exchange codes
+const EXCHANGE_MAP = {
+  ".US": { yahoo: "",    currency: "USD" }, // US listings → strip suffix
+  ".NL": { yahoo: ".AS", currency: "EUR" }, // Amsterdam (Euronext NL)
+  ".FR": { yahoo: ".PA", currency: "EUR" }, // Paris (Euronext FR)
+  ".IT": { yahoo: ".MI", currency: "EUR" }, // Milan (Borsa Italiana)
+  ".DE": { yahoo: ".DE", currency: "EUR" }, // XETRA Frankfurt
+  ".ES": { yahoo: ".MC", currency: "EUR" }, // Madrid (BME)
+  ".BE": { yahoo: ".BR", currency: "EUR" }, // Brussels (Euronext BE)
+  ".AT": { yahoo: ".VI", currency: "EUR" }, // Vienna (Wiener Börse)
+  ".FI": { yahoo: ".HE", currency: "EUR" }, // Helsinki (Nasdaq Nordic FI)
+  ".PT": { yahoo: ".LS", currency: "EUR" }, // Lisbon (Euronext PT)
+  ".UK": { yahoo: ".L",  currency: "GBP" }, // London Stock Exchange (pence)
+  ".PL": { yahoo: ".WA", currency: "PLN" }, // Warsaw
+  ".SE": { yahoo: ".ST", currency: "SEK" }, // Stockholm (Nasdaq Nordic SE)
+  ".DK": { yahoo: ".CO", currency: "DKK" }, // Copenhagen (Nasdaq Nordic DK)
+  ".NO": { yahoo: ".OL", currency: "NOK" }, // Oslo Børs
+  ".HU": { yahoo: ".BD", currency: "HUF" }, // Budapest (BÉT)
+};
+
+export function resolveYahooTicker(xtbTicker = "") {
+  for (const [suffix, { yahoo }] of Object.entries(EXCHANGE_MAP)) {
+    if (xtbTicker.endsWith(suffix)) {
+      const base = xtbTicker.slice(0, -suffix.length);
+      return base + yahoo;
+    }
+  }
+  return xtbTicker; // no known suffix → assume US/already resolved
+}
+
+export function getExpectedCurrency(xtbTicker = "") {
+  for (const [suffix, { currency }] of Object.entries(EXCHANGE_MAP)) {
+    if (xtbTicker.endsWith(suffix)) return currency;
+  }
+  return "USD"; // default: US dollar
 }
 
 function getCategory(xtbTicker = "", instrumentName = "", cat = "") {
@@ -16,14 +47,8 @@ function getCategory(xtbTicker = "", instrumentName = "", cat = "") {
   return "Részvény";
 }
 
-function parseComment(comment = "") {
-  try {
-    const parts = String(comment).trim().split(/\s+/);
-    const qty   = parseFloat(parts[2]);
-    const price = parseFloat(parts[4]);
-    if (!isNaN(qty) && !isNaN(price)) return { qty, price };
-  } catch {}
-  return null;
+function parseNum(val) {
+  return parseFloat(String(val || "").replace(",", ".")) || 0;
 }
 
 function fmtDT(val) {
@@ -34,146 +59,258 @@ function fmtDT(val) {
 }
 function fmtD(val) { return fmtDT(val).slice(0, 10); }
 
+// ─── OLD FORMAT helpers (Cash Operations-based open positions) ────────────────
+function parseComment(comment = "") {
+  try {
+    const parts = String(comment).trim().split(/\s+/);
+    const qty   = parseFloat(parts[2]);
+    const price = parseFloat(parts[4]);
+    if (!isNaN(qty) && !isNaN(price)) return { qty, price };
+  } catch {}
+  return null;
+}
+
 export function parseXTBFile(arrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: "array", cellDates: true });
   appLog.info(`XTB import: ${wb.SheetNames.join(", ")}`);
 
-  const openPositions   = new Map(); // nyitott pozíciók (Cash Operations alapján)
-  const closedPositions = [];        // lezárt pozíciók (Closed Positions alapján)
+  const hasOpenSheet = wb.SheetNames.includes("Open Positions");
 
-  // ── 1. Cash Operations → nyitott pozíciók ────────────────────────────────
+  // ── A. Cash Operations → HUF amounts indexed by Position ID + dividends ──
+  const cashByPositionId   = new Map(); // positionId → { amount, ticker, time }
+  const dividendsByTicker  = new Map(); // ticker → HUF sum
+  // For old-format fallback: open positions built from Cash Operations
+  const openFromCash       = new Map(); // ticker → position obj
+
   if (wb.SheetNames.includes("Cash Operations")) {
     const ws   = wb.Sheets["Cash Operations"];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
-    let hi = rows.findIndex(r => r[0] === "Type" && r[1] === "Ticker");
+
+    // Detect format: new header has "Instrument" at [1], old has "Ticker" at [1]
+    let hi = rows.findIndex(r => r[0] === "Type" && (r[1] === "Instrument" || r[1] === "Ticker"));
     if (hi < 0) hi = 4;
+    const isNew = rows[hi]?.[1] === "Instrument";
+    appLog.info(`Cash Operations format: ${isNew ? "új (2024+)" : "régi"}`);
 
     for (let i = hi + 1; i < rows.length; i++) {
-      const [type, ticker, instrument, time, amount, id, comment] = rows[i];
-      if (!ticker || !type) continue;
-
-      if (!openPositions.has(ticker)) {
-        openPositions.set(ticker, {
-          id: uid(), name: instrument || ticker,
-          ticker: resolveYahooTicker(ticker), xtbTicker: ticker,
-          category: getCategory(ticker, instrument),
-          currency: "HUF", currentPrice: 0,
-          realizedPnL: 0, dividends: 0, sales: [], lots: [],
-          notes: `XTB · ${ticker}`,
-        });
+      let type, instrument, ticker, time, amount, id, comment, positionId;
+      if (isNew) {
+        // New: Type | Instrument | Ticker | Category | Time | Amount | ID | Comment | Product | Position ID
+        [type, instrument, ticker, , time, amount, id, comment, , positionId] = rows[i];
+      } else {
+        // Old: Type | Ticker | Instrument | Time | Amount | ID | Comment
+        [type, ticker, instrument, time, amount, id, comment] = rows[i];
+        positionId = id; // old format: use row ID for matching
       }
-      const pos = openPositions.get(ticker);
-      const amt = parseFloat(String(amount).replace(",", ".")) || 0;
+      if (!type) continue;
 
-      if (type === "Stock purchase" && String(comment).includes("OPEN BUY")) {
-        const p = parseComment(comment);
-        if (p?.qty > 0) {
-          const hufTotal    = Math.abs(amt);
-          const hufPerShare = Math.round((hufTotal / p.qty) * 100) / 100;
-          pos.lots.push({
-            id: String(id) || uid(),
-            price: hufPerShare, quantity: p.qty,
-            date: fmtD(time), datetime: fmtDT(time),
-            usdPrice: p.price, hufTotal,
-            impliedFxRate: Math.round((hufPerShare / p.price) * 100) / 100,
-            notes: "",
+      const amt = parseNum(amount);
+
+      // Index Stock purchase by Position ID (new format) for lot cost lookup
+      if (positionId && type === "Stock purchase") {
+        cashByPositionId.set(String(positionId), { amount: amt, ticker, time });
+      }
+
+      // Dividends
+      if (type === "Dividend" && ticker) {
+        dividendsByTicker.set(ticker, (dividendsByTicker.get(ticker) || 0) + amt);
+      }
+
+      // Old-format fallback: build open positions from Cash Operations
+      if (!hasOpenSheet) {
+        if (!ticker && !type) continue;
+        if (!openFromCash.has(ticker)) {
+          openFromCash.set(ticker, {
+            id: uid(), name: instrument || ticker,
+            ticker: resolveYahooTicker(ticker), xtbTicker: ticker,
+            category: getCategory(ticker, instrument),
+            currency: getExpectedCurrency(ticker),
+            currentPrice: 0,
+            quoteStatus: "missing",
+            realizedPnL: 0, dividends: 0, sales: [], lots: [],
+            notes: `XTB · ${ticker}`,
           });
-          appLog.info(`OPEN: ${ticker} ${p.qty}db @$${p.price} = ${hufTotal.toFixed(0)} HUF`);
         }
-      } else if (type === "Stock sell" && String(comment).includes("CLOSE")) {
-        const p = parseComment(comment);
-        if (p) {
-          const hufProceeds = Math.abs(amt);
-          pos.sales.push({
-            date: fmtD(time), datetime: fmtDT(time),
-            qty: p.qty, usdPrice: p.price,
-            proceeds: hufProceeds,
-            hufPerShare: Math.round((hufProceeds / p.qty) * 100) / 100,
-          });
-          appLog.info(`CLOSE: ${ticker} ${p.qty}db @$${p.price} = ${hufProceeds.toFixed(0)} HUF`);
+        const pos = openFromCash.get(ticker);
+        if (type === "Stock purchase" && String(comment).includes("OPEN BUY")) {
+          const p = parseComment(comment);
+          if (p?.qty > 0) {
+            const hufTotal    = Math.abs(amt);
+            const hufPerShare = hufTotal > 0 && p.qty > 0 ? Math.round((hufTotal / p.qty) * 100) / 100 : 0;
+            pos.lots.push({
+              id: String(id) || uid(),
+              price: p.price, quantity: p.qty,
+              date: fmtD(time), datetime: fmtDT(time),
+              hufTotal,
+              hufPerShare,
+              impliedFxRate: p.price > 0 && hufPerShare > 0 ? Math.round((hufPerShare / p.price) * 100) / 100 : 0,
+            });
+          }
+        } else if (type === "Stock sell" && String(comment).includes("CLOSE")) {
+          const p = parseComment(comment);
+          if (p) {
+            pos.sales.push({
+              date: fmtD(time), datetime: fmtDT(time),
+              qty: p.qty, proceeds: Math.abs(amt),
+            });
+          }
+        } else if (type === "Dividend") {
+          pos.dividends += amt;
         }
-      } else if (type === "Dividend") {
-        pos.dividends += amt;
       }
     }
   }
 
-  // ── 2. Closed Positions → lezárt pozíciók ────────────────────────────────
-  // Header: Instrument, Category, Ticker, Type, Volume, Open Price, Open Time,
-  //         Close Price, Close Time, Product, Profit/Loss, Gross Profit,
-  //         Purchase Value, Sale Value, ...
-  if (wb.SheetNames.includes("Closed Positions")) {
-    const ws   = wb.Sheets["Closed Positions"];
+  const closedPositions = [];
+  const openResult      = [];
+
+  // ── B. Open Positions sheet (new format: 2024+) ───────────────────────────
+  // Header (row 10): Product | Instrument/Position | Ticker | Category | Type |
+  //                  Volume  | Value  | Current price | Open price | Open time |
+  //                  Stop Loss | Take Profit | Net Profit % | Net Profit | Gross Profit | Margin
+  if (hasOpenSheet) {
+    const ws   = wb.Sheets["Open Positions"];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
-    let hi = rows.findIndex(r => r[0] === "Instrument" && r[2] === "Ticker");
-    if (hi < 0) hi = 4;
+    let hi = rows.findIndex(r => r[1] === "Instrument/Position" && r[2] === "Ticker");
+    if (hi < 0) hi = 10;
+
+    const nameByTicker    = new Map();
+    const lotsByTicker    = new Map();
+    const currentByTicker = new Map();
 
     for (let i = hi + 1; i < rows.length; i++) {
       const r = rows[i];
-      const [instrument, cat, ticker, type, volume, openPrice, openTime,
-             closePrice, closeTime, product, pnl, , purchaseValue, saleValue] = r;
+      const [, nameOrId, ticker, category, type, volume, , currentPrice, openPrice, openTime] = r;
+      if (!ticker) continue;
+
+      const vol = parseNum(volume);
+      if (!vol) continue;
+
+      if (!type) {
+        // Summary row → instrument name for this ticker
+        nameByTicker.set(ticker, { name: nameOrId, category });
+        // IMPORTANT: never fall back to openPrice — missing current price must stay missing
+        const curPx = parseNum(currentPrice);
+        currentByTicker.set(ticker, curPx > 0 ? curPx : 0);
+      } else if (type === "BUY") {
+        if (!lotsByTicker.has(ticker)) lotsByTicker.set(ticker, []);
+        const posId      = String(nameOrId);
+        const cashEntry  = cashByPositionId.get(posId);
+        const openPr     = parseNum(openPrice);
+        // HUF cost: from Cash Operations if available, else approximate with current value
+        const hufTotal   = cashEntry ? Math.abs(cashEntry.amount) : 0;
+        const hufPerShare = hufTotal > 0 && vol > 0 ? Math.round((hufTotal / vol) * 100) / 100 : 0;
+
+        lotsByTicker.get(ticker).push({
+          id: posId || uid(),
+          price: openPr, quantity: vol,
+          date: fmtD(openTime), datetime: fmtDT(openTime),
+          hufTotal: hufTotal > 0 ? hufTotal : undefined,
+          hufPerShare: hufPerShare > 0 ? hufPerShare : undefined,
+          impliedFxRate: openPr > 0 && hufPerShare > 0 ? Math.round(hufPerShare / openPr * 100) / 100 : undefined,
+          notes: "",
+        });
+        appLog.info(`OPEN: ${ticker} ${vol}db @${openPr}${hufTotal > 0 ? ` = ${hufTotal.toFixed(0)} HUF` : " (HUF nincs)"}`);
+      }
+    }
+
+    for (const [ticker, lots] of lotsByTicker) {
+      if (!lots.length) continue;
+      const info      = nameByTicker.get(ticker) || { name: ticker, category: "" };
+      const currency  = getExpectedCurrency(ticker);
+      const divs      = dividendsByTicker.get(ticker) || 0;
+      const curPrice  = currentByTicker.get(ticker) ?? 0;
+      const quoteStatus = curPrice > 0 ? "stale" : "missing";
+
+      openResult.push({
+        id: uid(),
+        name: info.name || ticker,
+        ticker: resolveYahooTicker(ticker), xtbTicker: ticker,
+        category: getCategory(ticker, info.name, info.category),
+        currency,
+        currentPrice: curPrice,
+        quoteStatus,
+        realizedPnL: 0, sales: [], lots,
+        notes: `XTB · ${ticker}${divs > 0 ? ` · Osztalék: ${divs.toFixed(0)} HUF` : ""}`,
+      });
+    }
+
+  } else {
+    // Old format fallback: filter open positions from Cash Operations
+    for (const pos of openFromCash.values()) {
+      const bought    = pos.lots.reduce((s, l) => s + l.quantity, 0);
+      const sold      = pos.sales.reduce((s, s2) => s + s2.qty, 0);
+      const remaining = Math.round((bought - sold) * 1e8) / 1e8;
+      if (!pos.lots.length || remaining <= 0.000001) {
+        appLog.info(`KIHAGYVA: ${pos.xtbTicker}`); continue;
+      }
+      const { xtbTicker, dividends, ...clean } = pos;
+      if (dividends > 0) clean.notes += ` · Osztalék: ${dividends.toFixed(0)} HUF`;
+      openResult.push(clean);
+    }
+  }
+
+  // ── C. Closed Positions ───────────────────────────────────────────────────
+  // Old col order: Instrument | Category | Ticker | Type | Volume | ...
+  // New col order: Instrument | Ticker   | Category | Type | Volume | ...
+  if (wb.SheetNames.includes("Closed Positions")) {
+    const ws   = wb.Sheets["Closed Positions"];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
+    let hi = rows.findIndex(r => r[0] === "Instrument" && (r[1] === "Ticker" || r[2] === "Ticker"));
+    if (hi < 0) hi = 4;
+    const isNew = rows[hi]?.[1] === "Ticker"; // new: Ticker at [1], old: Category at [1]
+
+    for (let i = hi + 1; i < rows.length; i++) {
+      const r = rows[i];
+      let instrument, cat, ticker, type, volume, openPrice, openTime,
+          closePrice, closeTime, product, pnl, purchaseValue, saleValue;
+
+      if (isNew) {
+        [instrument, ticker, cat, type, volume, openPrice, openTime,
+         closePrice, closeTime, product, pnl, , purchaseValue, saleValue] = r;
+      } else {
+        [instrument, cat, ticker, type, volume, openPrice, openTime,
+         closePrice, closeTime, product, pnl, , purchaseValue, saleValue] = r;
+      }
 
       if (!ticker || !instrument) continue;
-      const pnlVal  = parseFloat(String(pnl).replace(",", ".")) || 0;
+      const vol         = parseNum(volume);
+      const pnlVal      = parseNum(pnl);
+      const purchaseHuf = parseNum(purchaseValue);
+      const saleHuf     = parseNum(saleValue);
+      if (!vol) continue;
 
-      // Realizált P&L hozzáadása a nyitott pozícióhoz ha van
-      if (openPositions.has(ticker)) {
-        openPositions.get(ticker).realizedPnL += pnlVal;
-      }
+      const currency = getExpectedCurrency(ticker);
 
-      // Lezárt pozíció rekord
-      if (instrument && ticker && parseFloat(String(volume).replace(",", "."))) {
-        const vol         = parseFloat(String(volume).replace(",", ".")) || 0;
-        const openPr      = parseFloat(String(openPrice).replace(",", ".")) || 0;
-        const closePr     = parseFloat(String(closePrice).replace(",", ".")) || 0;
-        const purchaseHuf = parseFloat(String(purchaseValue).replace(",", ".")) || 0;
-        const saleHuf     = parseFloat(String(saleValue).replace(",", ".")) || 0;
-        const hufOpenPx   = vol > 0 ? Math.round((purchaseHuf / vol) * 100) / 100 : 0;
-        const hufClosePx  = vol > 0 ? Math.round((saleHuf / vol) * 100) / 100 : 0;
-
-        closedPositions.push({
-          id:           uid(),
-          name:         instrument,
-          ticker:       resolveYahooTicker(ticker),
-          xtbTicker:    ticker,
-          category:     getCategory(ticker, instrument, cat),
-          currency:     "HUF",
-          closed:       true,                    // lezárt jelző
-          volume:       vol,
-          openUsdPrice: openPr,
-          closeUsdPrice:closePr,
-          openTime:     fmtDT(openTime),
-          closeTime:    fmtDT(closeTime),
-          openDate:     fmtD(openTime),
-          closeDate:    fmtD(closeTime),
-          purchaseHuf,
-          saleHuf,
-          hufOpenPx,
-          hufClosePx,
-          pnl:          pnlVal,
-          pnlPct:       purchaseHuf > 0 ? ((pnlVal / purchaseHuf) * 100) : 0,
-          product:      product || "",
-        });
-        appLog.info(`CLOSED: ${ticker} ${vol}db | nyitás $${openPr} → zárás $${closePr} | P&L ${pnlVal.toFixed(0)} HUF`);
-      }
+      closedPositions.push({
+        id: uid(),
+        name: instrument,
+        ticker: resolveYahooTicker(ticker), xtbTicker: ticker,
+        category:      getCategory(ticker, instrument, cat),
+        currency,
+        closed:        true,
+        volume:        vol,
+        openPrice:     parseNum(openPrice),
+        closePrice:    parseNum(closePrice),
+        // Keep old field names for backward compat while adding currency-neutral names
+        openUsdPrice:  parseNum(openPrice),
+        closeUsdPrice: parseNum(closePrice),
+        openTime:      fmtDT(openTime),
+        closeTime:     fmtDT(closeTime),
+        openDate:      fmtD(openTime),
+        closeDate:     fmtD(closeTime),
+        purchaseHuf,
+        saleHuf,
+        hufOpenPx:     vol > 0 ? Math.round((purchaseHuf / vol) * 100) / 100 : 0,
+        hufClosePx:    vol > 0 ? Math.round((saleHuf / vol) * 100) / 100 : 0,
+        pnl:           pnlVal,
+        pnlPct:        purchaseHuf > 0 ? (pnlVal / purchaseHuf) * 100 : 0,
+        product:       product || "",
+      });
+      appLog.info(`CLOSED: ${ticker} ${vol}db | ${parseNum(openPrice)} → ${parseNum(closePrice)} | P&L ${pnlVal.toFixed(0)} HUF`);
     }
   }
 
-  // ── 3. Nyitott pozíciók szűrése ───────────────────────────────────────────
-  const openResult = [];
-  for (const pos of openPositions.values()) {
-    const bought    = pos.lots.reduce((s, l) => s + l.quantity, 0);
-    const sold      = pos.sales.reduce((s, s2) => s + s2.qty, 0);
-    const remaining = Math.round((bought - sold) * 1e8) / 1e8;
-    if (pos.lots.length === 0 || remaining <= 0.000001) {
-      appLog.info(`KIHAGYVA (lezárt/nincs lot): ${pos.xtbTicker}`);
-      continue;
-    }
-    const { xtbTicker, dividends, ...clean } = pos;
-    if (dividends > 0) clean.notes += ` · Osztalék: ${dividends.toFixed(0)} HUF`;
-    openResult.push(clean);
-  }
-
-  appLog.info(`✓ Import: ${openResult.length} nyitott, ${closedPositions.length} lezárt pozíció`);
+  appLog.info(`✓ Import: ${openResult.length} nyitott, ${closedPositions.length} lezárt`);
   return { open: openResult, closed: closedPositions };
 }

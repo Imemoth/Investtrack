@@ -1,7 +1,7 @@
 // components/PortfolioTab.jsx
 import { useState } from "react";
 import { CATEGORIES, CATEGORY_COLORS } from "../constants";
-import { fmtNum, fmtCurrency, calcPnL } from "../utils";
+import { fmtNum, fmtCurrency, calcPnL, calcPnLHuf, getQuoteStatus } from "../utils";
 import { glassCard } from "../design-system";
 import { DonutChart } from "./ui";
 import { Treemap } from "./Treemap";
@@ -9,7 +9,7 @@ import { InvRow } from "./InvRow";
 
 export function PortfolioTab({
   theme, investments, closedPositions,
-  stats, refreshLabel,
+  stats, refreshLabel, fxRates,
   search, setSearch, filterCat, setFilterCat,
   sortBy, setSortBy, sortDir, setSortDir,
   displayed, showClosed, setShowClosed,
@@ -23,7 +23,7 @@ export function PortfolioTab({
     <>
       {/* ── Stat kártyák ── */}
       <StatCards theme={theme} stats={stats} investments={investments}
-        closedPositions={closedPositions} refreshLabel={refreshLabel} />
+        closedPositions={closedPositions} refreshLabel={refreshLabel} fxRates={fxRates} />
 
       {/* ── Eszközosztályok chart ── */}
       <ChartSection theme={theme} stats={stats} chartMode={chartMode}
@@ -44,8 +44,11 @@ export function PortfolioTab({
         </div>
         {displayed.map(inv => {
           const { value, abs, pct, avgBuyPrice, quantity } = calcPnL(inv);
+          const { pnlHuf } = calcPnLHuf(inv, fxRates || {});
+          const quoteStatus = getQuoteStatus(inv);
           return (
             <InvRow key={inv.id} inv={inv} value={value} abs={abs} pct={pct}
+              pnlHuf={pnlHuf} quoteStatus={quoteStatus}
               avgBuyPrice={avgBuyPrice} quantity={quantity} up={pct>=0} theme={theme}
               onDetail={() => onDetail(inv)} onSell={() => onSell(inv)}
               onEdit={() => onEdit(inv)} onDelete={() => onDelete(inv)}
@@ -195,7 +198,7 @@ function ClosedSection({ theme, closedPositions, showClosed, setShowClosed }) {
                 </div>
               </div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, borderTop:`1px solid ${theme.border.subtle}`, paddingTop:8 }}>
-                {[["Db",fmtNum(cp.volume,4)],["Vétel",`$${fmtNum(cp.openUsdPrice,2)}`],["Zárás",`$${fmtNum(cp.closeUsdPrice,2)}`],
+                {[["Db",fmtNum(cp.volume,4)],["Vétel",`${fmtNum(cp.openPrice??cp.openUsdPrice,2)} ${cp.currency||"USD"}`],["Zárás",`${fmtNum(cp.closePrice??cp.closeUsdPrice,2)} ${cp.currency||"USD"}`],
                   ["Befizetve",fmtNum(cp.purchaseHuf,0)+" Ft"],["Bevétel",fmtNum(cp.saleHuf,0)+" Ft"],["Dátum",cp.closeDate]].map(([l,v]) => (
                   <div key={l}>
                     <div style={{ fontSize:9, color:theme.text.tertiary, textTransform:"uppercase", marginBottom:2 }}>{l}</div>

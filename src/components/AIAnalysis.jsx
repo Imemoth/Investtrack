@@ -148,7 +148,7 @@ export function AIAnalysis({ investments, onClose }) {
             </div>
             <div style={{ fontSize: 11, color: "#8B949E", marginTop: 8, lineHeight: 1.5 }}>
               Kulcs a <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" style={{ color: "#6EE7B7" }}>console.anthropic.com</a> oldalon.
-              Lokálisan tárolódik, soha nem kerül szerverre.
+              A kulcs session storage-ban tárolódik (oldal bezárásig), és a <code style={{ background: "#0D1117", padding: "1px 4px", borderRadius: 3 }}>/api/analyze</code> végponton keresztül a Vercel szerverfunkcióba kerül, amely elvégzi az Anthropic API hívást.
             </div>
           </div>
 

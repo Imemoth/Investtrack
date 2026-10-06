@@ -35,7 +35,7 @@ export function calcCostBasis(lots = []) {
   return lots.reduce((s, l) => s + (parseFloat(l.price) || 0) * (parseFloat(l.quantity) || 0), 0);
 }
 
-// P&L számítás – lot-alapú
+// P&L számítás – lot-alapú, natív devizában
 export function calcPnL(inv) {
   const lots       = inv.lots || [];
   const totalQty   = calcTotalQty(lots);
@@ -64,6 +64,54 @@ export function calcPnL(inv) {
     realizedAbs,
     totalAbs,
   };
+}
+
+// HUF-normált P&L számítás portfólió összesítőkhöz
+// fxRates: { USD: 385, EUR: 420, GBP: 475, HUF: 1 }
+// Szabályok:
+//   - currency === "HUF" esetén currentPrice már HUF-ban van (fxRate = 1)
+//   - más devizánál currentPrice natív devizában van, fxRate konvertál HUF-ra
+//   - lot.hufTotal a historikus HUF bekerülési ár (XTB-import esetén változatlan)
+//   - ha lot.hufTotal nincs meg, aktuális fxRate-tel becsüljük (csak manuál lot esetén)
+export function calcPnLHuf(inv, fxRates = {}) {
+  const lots = inv.lots || [];
+  const totalQty = calcTotalQty(lots);
+  const fxRate = inv.currency === "HUF" ? 1 : (parseFloat(fxRates[inv.currency]) || 1);
+
+  // Historikus HUF bekerülési ár: lot.hufTotal ha van (immutable), egyébként becslés
+  const costHuf = lots.reduce((s, l) => {
+    const qty = parseFloat(l.quantity) || 0;
+    if (qty <= 0) return s;
+    if (l.hufTotal != null && l.hufTotal > 0) return s + l.hufTotal;
+    return s + (parseFloat(l.price) || 0) * qty * fxRate;
+  }, 0);
+
+  // Aktuális piaci érték HUF-ban
+  const valueHuf = (inv.currentPrice || 0) * totalQty * fxRate;
+  const pnlHuf   = valueHuf - costHuf;
+  const pnlPct   = costHuf > 0 ? (pnlHuf / costHuf) * 100 : 0;
+
+  return { costHuf, valueHuf, pnlHuf, pnlPct, totalQty, fxRate };
+}
+
+// Árfolyam-frissítés állapota egy pozícióhoz
+export function getQuoteStatus(inv) {
+  if (!inv.currentPrice || inv.currentPrice <= 0) return "missing";
+  if (!inv._refreshedAt) return "stale";
+  const ageMs = Date.now() - new Date(inv._refreshedAt).getTime();
+  return ageMs < 8 * 3600 * 1000 ? "fresh" : "stale";
+}
+
+// Lot HUF bekerülési ár kiszámítása mentéskor
+// Ha a felhasználó megadott Ft összeget (amount) → hufTotal = amount
+// Ha nincs amount → becsülés aktuális fxRate-tel
+export function lotWithHufTotal(lot, fxRate = 1) {
+  const price = parseFloat(lot.price) || 0;
+  const qty   = parseFloat(lot.quantity) || 0;
+  const amt   = parseFloat(lot.amount);
+  const hufTotal = (isFinite(amt) && amt > 0) ? amt : Math.round(price * qty * fxRate);
+  const { amount: _ignored, ...rest } = lot; // amount csak form-state, nem persistálódik
+  return { ...rest, price, quantity: qty, hufTotal: hufTotal || undefined };
 }
 
 // ─── MIGRÁCIÓ: v1 → v2 ────────────────────────────────────────────────────────

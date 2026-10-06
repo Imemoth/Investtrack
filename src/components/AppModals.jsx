@@ -11,6 +11,7 @@ import { glassCard } from "../design-system";
 
 export function AppModals({
   theme, investments, closedPositions,
+  fxRates,
   // Modal state
   modal, setModal,
   editing, setEditing,
@@ -165,7 +166,7 @@ export function AppModals({
       )}
 
       {/* Eladás */}
-      {sellInv && <SellModal inv={sellInv} onSell={handleSell} onClose={() => setSellInv(null)} />}
+      {sellInv && <SellModal inv={sellInv} fxRates={fxRates} onSell={handleSell} onClose={() => setSellInv(null)} />}
 
       {/* Egyéb */}
       {showTxLog   && <TransactionLog onClose={() => setShowTxLog(false)} />}
