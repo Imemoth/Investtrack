@@ -25,6 +25,7 @@ export function PnLSummary({ investments, fxRates = {} }) {
     return {
       total, cost, pnl, pct,
       valuationComplete: valued.length === investments.length,
+      costBasisComplete: rows.every(r => !r.p.hasEstimatedCost),
       best: sorted[0],
       worst: sorted[sorted.length - 1],
     };
@@ -55,10 +56,10 @@ export function PnLSummary({ investments, fxRates = {} }) {
       {/* Statisztikák */}
       <div style={glassCard(T, { padding: "4px 16px" })}>
         <Row label="Portfólió értéke"   value={fmtNum(data.total, 0) + " Ft"} color={T.text.primary} />
-        <Row label="Befektetett tőke"   value={fmtNum(data.cost, 0) + " Ft"} />
+        <Row label="Befektetett tőke"   value={(data.costBasisComplete ? "" : "≈ ") + fmtNum(data.cost, 0) + " Ft"} />
         <Row label="Legjobb pozíció"    value={data.best ? `${data.best.ticker||data.best.name}: +${fmtNum(data.best.pct,2)}%` : "—"} color={T.accent.green} />
         <Row label="Leggyengébb pozíció" value={data.worst ? `${data.worst.ticker||data.worst.name}: ${fmtNum(data.worst.pct,2)}%` : "—"} color={T.accent.red} />
-        <Row label="Pozíciók száma"     value={`${investments.length} db${data.valuationComplete ? "" : " · részleges értékelés"}`} color={T.text.primary} />
+        <Row label="Pozíciók száma"     value={`${investments.length} db${data.valuationComplete ? "" : " · részleges értékelés"}${data.costBasisComplete ? "" : " · ≈ becsült cost"}`} color={T.text.primary} />
       </div>
 
       <div style={{ ...glassCard(T), padding: 14, fontSize: 12, color: T.text.secondary, lineHeight: 1.6 }}>
