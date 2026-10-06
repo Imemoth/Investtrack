@@ -70,7 +70,13 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
 
   const avgPrice  = calcAvgBuyPrice(lots);
   const totalQty  = calcTotalQty(lots);
-  const totalCost = calcCostBasis(lots);
+  const totalHufCost = lots.reduce((sum, lot) => {
+    const amount = parseFloat(lot.amount);
+    if (Number.isFinite(amount) && amount > 0) return sum + amount;
+    const historical = parseFloat(lot.hufTotal);
+    if (!lot._hufStale && Number.isFinite(historical) && historical > 0) return sum + historical;
+    return sum;
+  }, 0);
 
   const inputStyle = {
     width: "100%", background: T.bg.inset, border: `1px solid ${T.border.default}`,
@@ -246,7 +252,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
         {lots.some(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0) && (
           <div style={{ ...glassCard(T, { padding: 12 }), marginTop: 10, background: "rgba(110,231,183,0.06)", border: `1px solid rgba(110,231,183,0.2)` }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, textAlign: "center" }}>
-              {[["Átlag vételár", fmtNum(avgPrice, 2)], ["Összmennyiség", fmtNum(totalQty, 4)], ["Befektetett", fmtNum(totalCost * getFx(form.currency), 0) + " Ft"]].map(([l, v]) => (
+              {[["Átlag vételár", fmtNum(avgPrice, 2)], ["Összmennyiség", fmtNum(totalQty, 4)], ["Befektetett", totalHufCost > 0 ? fmtNum(totalHufCost, 0) + " Ft" : "—"]].map(([l, v]) => (
                 <div key={l}>
                   <div style={{ fontSize: 9, color: T.text.tertiary, textTransform: "uppercase", marginBottom: 3 }}>{l}</div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.accent.green, fontFamily: "'DM Mono',monospace" }}>{v}</div>
