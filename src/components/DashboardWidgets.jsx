@@ -346,12 +346,12 @@ const EMPTY_ORDER = { name:"", ticker:"", type:"Buy Limit", limitPrice:"", curre
 const TYPE_COLOR  = { "Buy Limit":"#6EE7B7", "Sell Limit":"#FCA5A5", "Buy Stop":"#93C5FD", "Sell Stop":"#FDE68A" };
 
 export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", initialOrders, onSaveOrder, onDeleteOrder, onConvertOrder }) {
-  const [orders,    setOrders]    = useState(() => initialOrders?.length ? initialOrders : loadPending());
+  const externallyManaged = Array.isArray(initialOrders);
+  const [orders, setOrders] = useState(() => externallyManaged ? initialOrders : loadPending());
 
   useEffect(() => {
-    if (initialOrders?.length) {
+    if (Array.isArray(initialOrders)) {
       setOrders(initialOrders);
-      savePending(initialOrders);
     }
   }, [initialOrders]);
   const [showAdd,      setShowAdd]      = useState(false);
@@ -412,14 +412,16 @@ export function PendingOrders({ fxRates = {}, displayCurrency = "HUF", initialOr
       savedFxRate: impliedFx || null,
     };
     const next = [...orders, order];
-    setOrders(next); savePending(next);
+    setOrders(next);
+    if (!externallyManaged) savePending(next);
     onSaveOrder?.(order);
     setForm(EMPTY_ORDER); setShowAdd(false);
   };
 
   const removeOrder = id => {
     const next = orders.filter(o => o.id !== id);
-    setOrders(next); savePending(next);
+    setOrders(next);
+    if (!externallyManaged) savePending(next);
     onDeleteOrder?.(id);
   };
 
