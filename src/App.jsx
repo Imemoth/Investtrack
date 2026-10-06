@@ -11,7 +11,7 @@ import {
   fetchPendingOrders, upsertPendingOrder, deletePendingOrder,
   savePortfolioSnapshot,
 } from "./services/supabase";
-import { persistCsvImport } from "./services/importPersistence";
+import { createImportMutex, persistCsvImport } from "./services/importPersistence";
 import { AuthScreen } from "./components/AuthScreen";
 import { THEME as T, LIGHT_THEME, glassCard, haptic, KEYFRAMES } from "./design-system";
 
@@ -78,6 +78,9 @@ export default function App() {
   const [lastRefreshed,   setLastRefreshed]   = useState(null);
   const [isBooting,       setIsBooting]       = useState(true);
   const [refreshingId,    setRefreshingId]    = useState(null);
+  const [importing,       setImporting]       = useState(false);
+  const importMutexRef = useRef(null);
+  if (!importMutexRef.current) importMutexRef.current = createImportMutex();
 
   // Rövid boot delay – fonts + layout betöltés
   useEffect(() => {
@@ -511,6 +514,8 @@ export default function App() {
 
   // ── Import ──
   const handleImport = async () => {
+    if (!importMutexRef.current.tryLock()) return;
+    setImporting(true);
     try {
       const parsed = parseCSV(importText);
       if (!parsed.length) throw new Error("Nem találtam adatsort");
@@ -521,71 +526,93 @@ export default function App() {
         });
         return;
       }
-      await persistCsvImport("merge", parsed);
+      const importUserId = user.id;
+      await persistCsvImport({ mode: "merge", investments: parsed, userId: importUserId });
+      if (syncRef.current !== importUserId) return;
       setInvestments(parsed);
       setModal(null); setImportText("");
       showToast(`${parsed.length} befektetés importálva!`);
     } catch (e) { showToast("Import hiba: " + e.message, "error"); }
+    finally {
+      setImporting(false);
+      importMutexRef.current.unlock();
+    }
   };
 
   const handleImportReplace = async () => {
     const { type, parsed, closed } = importConfirm;
-    setImportConfirm(null);
     if (type === "csv") {
+      if (!importMutexRef.current.tryLock()) return;
+      setImporting(true);
+      setImportConfirm(null);
       try {
-        await persistCsvImport("replace", parsed);
+        const importUserId = user.id;
+        await persistCsvImport({ mode: "replace", investments: parsed, userId: importUserId });
+        if (syncRef.current !== importUserId) return;
+        setInvestments(parsed);
+        localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", importUserId));
+        setLastRefreshed(null);
+        setModal(null); setImportText("");
+        showToast(`${parsed.length} befektetés importálva!`);
       } catch (e) {
         showToast("CSV szinkron hiba: " + e.message, "error");
-        return;
+      } finally {
+        setImporting(false);
+        importMutexRef.current.unlock();
       }
-      setInvestments(parsed);
-      if (user) localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", user.id));
-      setLastRefreshed(null);
-      setModal(null); setImportText("");
-      showToast(`${parsed.length} befektetés importálva!`);
-    } else {
-      if (user) {
-        try {
-          await deleteAllInvestments();
-          await deleteAllClosedPositions();
-          await upsertInvestments(parsed);
-          await upsertClosedPositions(closed);
-        } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
-      }
-      setInvestments(parsed);
-      setClosedPositions(closed);
-      if (user) localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", user.id));
-      setLastRefreshed(null);
-      setModal(null);
-      showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció`);
+      return;
     }
+
+    setImportConfirm(null);
+    if (user) {
+      try {
+        await deleteAllInvestments();
+        await deleteAllClosedPositions();
+        await upsertInvestments(parsed);
+        await upsertClosedPositions(closed);
+      } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
+    }
+    setInvestments(parsed);
+    setClosedPositions(closed);
+    if (user) localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", user.id));
+    setLastRefreshed(null);
+    setModal(null);
+    showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció`);
   };
 
   const handleImportMerge = async () => {
     const { type, parsed, closed } = importConfirm;
-    setImportConfirm(null);
     if (type === "csv") {
+      if (!importMutexRef.current.tryLock()) return;
+      setImporting(true);
+      setImportConfirm(null);
       try {
-        await persistCsvImport("merge", parsed);
+        const importUserId = user.id;
+        await persistCsvImport({ mode: "merge", investments: parsed, userId: importUserId });
+        if (syncRef.current !== importUserId) return;
+        setInvestments(prev => [...prev, ...parsed]);
+        setModal(null); setImportText("");
+        showToast(`${parsed.length} befektetés hozzáadva!`);
       } catch (e) {
         showToast("CSV szinkron hiba: " + e.message, "error");
-        return;
+      } finally {
+        setImporting(false);
+        importMutexRef.current.unlock();
       }
-      setInvestments(prev => [...prev, ...parsed]);
-      setModal(null); setImportText("");
-      showToast(`${parsed.length} befektetés hozzáadva!`);
-    } else {
-      setInvestments(prev => [...prev, ...parsed]);
-      setClosedPositions(prev => [...prev, ...closed]);
-      if (user) {
-        try {
-          await upsertInvestments(parsed);
-          await upsertClosedPositions(closed);
-        } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
-      }
-      setModal(null);
-      showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció hozzáadva`);
+      return;
     }
+
+    setImportConfirm(null);
+    setInvestments(prev => [...prev, ...parsed]);
+    setClosedPositions(prev => [...prev, ...closed]);
+    if (user) {
+      try {
+        await upsertInvestments(parsed);
+        await upsertClosedPositions(closed);
+      } catch(e) { showToast("XTB szinkron hiba (helyi adat OK): " + e.message, "error"); }
+    }
+    setModal(null);
+    showToast(`✓ XTB: ${parsed.length} nyitott, ${closed.length} lezárt pozíció hozzáadva`);
   };
 
   const handleFileImport = e => {
@@ -881,6 +908,7 @@ export default function App() {
         featureModal={featureModal}  setFeatureModal={setFeatureModal}
         toast={toast}
         importText={importText}     setImportText={setImportText}
+        importing={importing}
         saveInvestment={saveInvestment}
         handleSell={handleSell}
         handleImport={handleImport}

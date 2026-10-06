@@ -69,9 +69,9 @@ export async function upsertInvestment(inv) {
   }
 }
 
-export async function upsertInvestments(invs) {
+export async function upsertInvestments(invs, ownerId) {
   if (!invs.length) return;
-  const userId = await getUserId();
+  const userId = ownerId || await getUserId();
   const rows = invs.map(i => investmentToDb(i, userId));
   const { error } = await supabase.from("investments").upsert(rows, { onConflict: "id" });
   if (!error) return;
@@ -90,6 +90,27 @@ export async function deleteInvestment(id) {
     .from("investments")
     .delete()
     .eq("id", id);
+  if (error) throw error;
+}
+
+// Minden olyan befektetés törlése, amely nincs az átadott ID-listában.
+export async function deleteInvestmentsExcept(ids, ownerId) {
+  const userId = ownerId || await getUserId();
+  const { data, error: selectError } = await supabase
+    .from("investments")
+    .select("id")
+    .eq("user_id", userId);
+  if (selectError) throw selectError;
+
+  const keptIds = new Set(ids);
+  const staleIds = data.map(row => row.id).filter(id => !keptIds.has(id));
+  if (!staleIds.length) return;
+
+  const { error } = await supabase
+    .from("investments")
+    .delete()
+    .eq("user_id", userId)
+    .in("id", staleIds);
   if (error) throw error;
 }
 
