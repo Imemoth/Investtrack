@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { CATEGORIES, CURRENCIES, EMPTY_FORM } from "../constants";
-import { uid, calcAvgBuyPrice, calcTotalQty, calcCostBasis, fmtNum, lotWithHufTotal } from "../utils";
+import { uid, calcAvgBuyPrice, calcTotalQty, fmtNum, lotWithHufTotal } from "../utils";
 import { THEME as T, glassCard, haptic } from "../design-system";
 import { TickerSearch, fetchQuoteDetails, typeToCategory } from "./TickerSearch";
 
