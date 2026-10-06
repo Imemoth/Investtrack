@@ -1,5 +1,5 @@
 import { appLog } from "./logger";
-import { getExpectedCurrency } from "./xtbImporter";
+import { getExpectedCurrency, isSupportedExchange } from "./xtbImporter";
 
 const CORS_PROXIES = [
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -28,11 +28,29 @@ async function fetchWithProxyFallback(yahooUrl) {
   throw lastError;
 }
 
-// Szándékos deviza-eltérések (cross-listing, GBX→GBP stb.)
-// Ha a Yahoo más devizát ad vissza mint amit várunk, ellenőrizzük itt
-const INTENTIONAL_CURRENCY_OVERRIDES = new Set([
-  "GBX", // London Stock Exchange pence → GBP az inv.currency
-]);
+// Yahoo quote normalizálás + szigorú devizaellenőrzés.
+// London Yahoo quote: GBX (pence) → GBP (font) / 100.
+export function normalizeYahooQuote({ price, currency, exchange }, expectedCurrency = null) {
+  let normalizedPrice = price;
+  let normalizedCurrency = currency;
+
+  if (currency === "GBX") {
+    normalizedPrice = price / 100;
+    normalizedCurrency = "GBP";
+  }
+
+  if (expectedCurrency && normalizedCurrency && normalizedCurrency !== expectedCurrency) {
+    throw new Error(`Deviza eltérés: várt ${expectedCurrency}, kapott ${normalizedCurrency}`);
+  }
+
+  return {
+    price: normalizedPrice,
+    currency: normalizedCurrency,
+    exchange,
+    rawPrice: price,
+    rawCurrency: currency,
+  };
+}
 
 export async function fetchYahooPrice(ticker, expectedCurrency = null) {
   const hosts = ["query1", "query2"];
@@ -47,16 +65,12 @@ export async function fetchYahooPrice(ticker, expectedCurrency = null) {
       const price = meta.regularMarketPrice ?? meta.chartPreviousClose;
       if (!price) throw new Error(`Nincs ár a válaszban`);
 
-      // Deviza validáció: ha eltérés van és nem szándékos, logoljuk
-      if (expectedCurrency && meta.currency &&
-          meta.currency !== expectedCurrency &&
-          !INTENTIONAL_CURRENCY_OVERRIDES.has(meta.currency)) {
-        appLog.warn(`Deviza eltérés: ${ticker} → várt ${expectedCurrency}, kapott ${meta.currency}`);
-        // Nem dobunk hibát – a felhasználó manuálisan is megadhat devizát
-      }
-
-      appLog.info(`✓ ${ticker} = ${price} ${meta.currency}`);
-      return { price, currency: meta.currency, exchange: meta.exchangeName };
+      const quote = normalizeYahooQuote(
+        { price, currency: meta.currency, exchange: meta.exchangeName },
+        expectedCurrency,
+      );
+      appLog.info(`✓ ${ticker} = ${quote.price} ${quote.currency}`);
+      return quote;
     } catch (e) {
       appLog.error(`✗ ${ticker} (${host}) sikertelen`, e.message);
       lastError = e;
@@ -129,28 +143,30 @@ export async function refreshAllPrices(investments, onProgress) {
     const inv = withTicker[i];
     onProgress?.(`${inv.ticker} (${i + 1}/${withTicker.length})`);
     try {
-      // Pass expected currency for validation
-      const expectedCurrency = inv.xtbTicker ? getExpectedCurrency(inv.xtbTicker) : inv.currency;
+      if (inv.xtbTicker && !isSupportedExchange(inv.xtbTicker)) {
+        throw new Error(`Nem támogatott XTB tőzsde: ${inv.xtbTicker}`);
+      }
+
+      // Imported holdings must match their mapped exchange currency.
+      // Manual HUF holdings may intentionally fetch a foreign quote and convert it.
+      const expectedCurrency = inv.xtbTicker
+        ? getExpectedCurrency(inv.xtbTicker)
+        : (inv.currency === "HUF" ? null : inv.currency);
       const data = await fetchYahooPrice(inv.ticker, expectedCurrency);
+      let finalPrice = data.price;
 
-      // Yahoo quotes London listings in GBX (pence). Normalize to GBP before
-      // storing currentPrice so downstream valuation never treats pence as pounds.
-      const normalizedCurrency = data.currency === "GBX" ? "GBP" : (data.currency || inv.currency);
-      const normalizedPrice = data.currency === "GBX" ? data.price / 100 : data.price;
-      let finalPrice = normalizedPrice;
-
-      // For HUF-denominated positions: convert native price to HUF.
-      if (inv.currency === "HUF" && normalizedCurrency !== "HUF") {
-        const yahooFx = fxRates[normalizedCurrency];
+      // For HUF-denominated positions: convert normalized native price to HUF.
+      if (inv.currency === "HUF" && data.currency && data.currency !== "HUF") {
+        const yahooFx = fxRates[data.currency];
         if (!Number.isFinite(yahooFx) || yahooFx <= 0) {
-          throw new Error(`Nincs ${normalizedCurrency}/HUF árfolyam`);
+          throw new Error(`Nincs ${data.currency}/HUF árfolyam`);
         }
-        finalPrice = normalizedPrice * yahooFx;
-        appLog.info(`✓ ${inv.ticker}: ${normalizedPrice} ${normalizedCurrency} × ${yahooFx} = ${finalPrice.toFixed(0)} HUF`);
+        finalPrice = data.price * yahooFx;
+        appLog.info(`✓ ${inv.ticker}: ${data.price} ${data.currency} × ${yahooFx} = ${finalPrice.toFixed(0)} HUF`);
       }
       results.set(inv.ticker.toUpperCase(), {
-        nativePrice:    normalizedPrice,
-        nativeCurrency: normalizedCurrency,
+        nativePrice:    data.price,
+        nativeCurrency: data.currency || inv.currency,
         hufPrice:       finalPrice,
       });
     } catch (e) {
