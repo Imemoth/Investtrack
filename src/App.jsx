@@ -580,24 +580,37 @@ export default function App() {
     const totalPnL   = valuedData.reduce((s, p) => s + p.pnlHuf, 0);
     const valuedCost = valuedData.reduce((s, p) => s + p.costHuf, 0);
     const totalPct   = valuedCost > 0 ? (totalPnL / valuedCost) * 100 : 0;
+    const valuationComplete = pnlData.every(p => p.valuationAvailable);
+
+    // Allocation charts may fall back to historical HUF cost for an unavailable quote,
+    // but their denominator must use the same fallback basis.
+    const allocationRows = investments.map((inv, idx) => {
+      const p = pnlData[idx];
+      return {
+        inv,
+        p,
+        allocationValue: p.valuationAvailable ? p.valueHuf : p.costHuf,
+      };
+    });
+    const allocationTotal = allocationRows.reduce((sum, r) => sum + r.allocationValue, 0);
 
     const catBreakdown = CATEGORIES
       .map(c => {
-        const invs = investments.filter(i => i.category === c);
-        const v = invs.reduce((s, i) => {
-          const p = calcPnLHuf(i, fxRates);
-          return s + (p.valueHuf > 0 ? p.valueHuf : p.costHuf);
-        }, 0);
-        return { label: c, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: CATEGORY_COLORS[c] };
+        const v = allocationRows
+          .filter(r => r.inv.category === c)
+          .reduce((sum, r) => sum + r.allocationValue, 0);
+        return { label: c, value: v, pct: allocationTotal > 0 ? (v / allocationTotal) * 100 : 0, color: CATEGORY_COLORS[c] };
       })
       .filter(d => d.value > 0);
 
-    const posBreakdown = [...investments]
-      .map((inv, idx) => {
-        const p = calcPnLHuf(inv, fxRates);
-        const v = p.valueHuf > 0 ? p.valueHuf : p.costHuf;
-        return { label: inv.ticker || inv.name, fullName: inv.name, value: v, pct: totalValue > 0 ? (v / totalValue) * 100 : 0, color: POSITION_PALETTE[idx % POSITION_PALETTE.length] };
-      })
+    const posBreakdown = allocationRows
+      .map(({ inv, allocationValue }, idx) => ({
+        label: inv.ticker || inv.name,
+        fullName: inv.name,
+        value: allocationValue,
+        pct: allocationTotal > 0 ? (allocationValue / allocationTotal) * 100 : 0,
+        color: POSITION_PALETTE[idx % POSITION_PALETTE.length],
+      }))
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
 
@@ -620,7 +633,7 @@ export default function App() {
 
     const pendingTotal = pendingOrders.reduce((s, o) => s + (o.hufTotal || 0), 0);
 
-    return { totalCost, totalValue, totalPnL, totalPct, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
+    return { totalCost, totalValue, totalPnL, totalPct, valuationComplete, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
   }, [investments, closedPositions, pendingOrders, fxRates]);
 
   // ── Filtered & sorted list ──
@@ -632,14 +645,22 @@ export default function App() {
     );
     return [...list].sort((a, b) => {
       let va, vb;
-      if      (sortBy === "name")  { va = a.name;             vb = b.name; }
-      else if (sortBy === "value") { va = calcPnL(a).value;   vb = calcPnL(b).value; }
-      else if (sortBy === "pnl")   { va = calcPnL(a).pct;     vb = calcPnL(b).pct; }
+      if      (sortBy === "name")  { va = a.name; vb = b.name; }
+      else if (sortBy === "value") {
+        const pa = calcPnLHuf(a, fxRates), pb = calcPnLHuf(b, fxRates);
+        va = pa.valuationAvailable ? pa.valueHuf : -Infinity;
+        vb = pb.valuationAvailable ? pb.valueHuf : -Infinity;
+      }
+      else if (sortBy === "pnl") {
+        const pa = calcPnLHuf(a, fxRates), pb = calcPnLHuf(b, fxRates);
+        va = pa.valuationAvailable ? pa.pnlPct : -Infinity;
+        vb = pb.valuationAvailable ? pb.pnlPct : -Infinity;
+      }
       else if (sortBy === "date")  { va = a.lots?.[0]?.date || a.buyDate || ""; vb = b.lots?.[0]?.date || b.buyDate || ""; }
       else                         { va = a[sortBy];                    vb = b[sortBy]; }
       return (va < vb ? -1 : va > vb ? 1 : 0) * (sortDir === "asc" ? 1 : -1);
     });
-  }, [investments, search, filterCat, sortBy, sortDir]);
+  }, [investments, search, filterCat, sortBy, sortDir, fxRates]);
 
   const toggleSort = col => {
     if (sortBy === col) setSortDir(d => d === "asc" ? "desc" : "asc");
