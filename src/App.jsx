@@ -11,6 +11,7 @@ import {
   fetchPendingOrders, upsertPendingOrder, deletePendingOrder,
   savePortfolioSnapshot,
 } from "./services/supabase";
+import { persistCsvImport } from "./services/importPersistence";
 import { AuthScreen } from "./components/AuthScreen";
 import { THEME as T, LIGHT_THEME, glassCard, haptic, KEYFRAMES } from "./design-system";
 
@@ -509,7 +510,7 @@ export default function App() {
   };
 
   // ── Import ──
-  const handleImport = () => {
+  const handleImport = async () => {
     try {
       const parsed = parseCSV(importText);
       if (!parsed.length) throw new Error("Nem találtam adatsort");
@@ -520,6 +521,7 @@ export default function App() {
         });
         return;
       }
+      await persistCsvImport("merge", parsed);
       setInvestments(parsed);
       setModal(null); setImportText("");
       showToast(`${parsed.length} befektetés importálva!`);
@@ -530,6 +532,12 @@ export default function App() {
     const { type, parsed, closed } = importConfirm;
     setImportConfirm(null);
     if (type === "csv") {
+      try {
+        await persistCsvImport("replace", parsed);
+      } catch (e) {
+        showToast("CSV szinkron hiba: " + e.message, "error");
+        return;
+      }
       setInvestments(parsed);
       if (user) localStorage.removeItem(scopedStorageKey("investtrack_last_refresh", user.id));
       setLastRefreshed(null);
@@ -557,6 +565,12 @@ export default function App() {
     const { type, parsed, closed } = importConfirm;
     setImportConfirm(null);
     if (type === "csv") {
+      try {
+        await persistCsvImport("merge", parsed);
+      } catch (e) {
+        showToast("CSV szinkron hiba: " + e.message, "error");
+        return;
+      }
       setInvestments(prev => [...prev, ...parsed]);
       setModal(null); setImportText("");
       showToast(`${parsed.length} befektetés hozzáadva!`);
