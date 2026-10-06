@@ -214,7 +214,7 @@ export default function App() {
         if (lastSnapDate !== today && migratedInvs.length > 0) {
           const cachedFx = JSON.parse(localStorage.getItem("investtrack_fx") || "{}");
           const snapRows = migratedInvs.map(i => calcPnLHuf(i, cachedFx));
-          if (snapRows.every(p => p.valuationAvailable)) {
+          if (snapRows.every(p => p.valuationAvailable && !p.hasEstimatedCost)) {
             const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
             const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
             savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
@@ -303,7 +303,7 @@ export default function App() {
       // Portfólió snapshot + Supabase szinkron
       if (user) {
         const snapRows = updated.map(i => calcPnLHuf(i, newFxRates));
-        if (snapRows.every(p => p.valuationAvailable)) {
+        if (snapRows.every(p => p.valuationAvailable && !p.hasEstimatedCost)) {
           const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
           const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
           savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
@@ -376,7 +376,7 @@ export default function App() {
 
       if (user) {
         const snapRows = updated.map(i => calcPnLHuf(i, fxRates));
-        if (snapRows.every(p => p.valuationAvailable)) {
+        if (snapRows.every(p => p.valuationAvailable && !p.hasEstimatedCost)) {
           const snapValue = snapRows.reduce((sum, p) => sum + p.valueHuf, 0);
           const snapCost  = snapRows.reduce((sum, p) => sum + p.costHuf, 0);
           savePortfolioSnapshot(snapValue, snapCost, snapValue - snapCost);
@@ -628,6 +628,7 @@ export default function App() {
     const valuedCost = valuedData.reduce((s, p) => s + p.costHuf, 0);
     const totalPct   = valuedCost > 0 ? (totalPnL / valuedCost) * 100 : 0;
     const valuationComplete = pnlData.every(p => p.valuationAvailable);
+    const costBasisComplete = pnlData.every(p => !p.hasEstimatedCost);
 
     // Allocation charts may fall back to historical HUF cost for an unavailable quote,
     // but their denominator must use the same fallback basis.
@@ -680,7 +681,7 @@ export default function App() {
 
     const pendingTotal = pendingOrders.reduce((s, o) => s + (o.hufTotal || 0), 0);
 
-    return { totalCost, totalValue, totalPnL, totalPct, valuationComplete, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
+    return { totalCost, totalValue, totalPnL, totalPct, valuationComplete, costBasisComplete, catBreakdown, posBreakdown, totalDividend, totalRealizedPnL, pendingTotal };
   }, [investments, closedPositions, pendingOrders, fxRates]);
 
   // ── Filtered & sorted list ──
