@@ -46,11 +46,11 @@ export function TopMovers({ investments, fxRates = {} }) {
           </div>
         </div>
         <div style={{ textAlign:"right" }}>
-          <div style={{ fontSize:14, fontWeight:700, color:isWinner ? T.accent.green : T.accent.red, fontFamily:"'DM Mono',monospace" }}>
-            {isWinner?"+":""}{fmtNum(inv.pct, 2)}%
+          <div style={{ fontSize:14, fontWeight:700, color:positive ? T.accent.green : T.accent.red, fontFamily:"'DM Mono',monospace" }}>
+            {positive?"+":""}{fmtNum(inv.pct, 2)}%
           </div>
           <div style={{ fontSize:11, color:T.text.tertiary, fontFamily:"'DM Mono',monospace" }}>
-            {isWinner?"+":""}{fmtNum(inv.abs, 0)} Ft
+            {inv.abs>0?"+":""}{fmtNum(inv.abs, 0)} Ft
           </div>
         </div>
       </div>
