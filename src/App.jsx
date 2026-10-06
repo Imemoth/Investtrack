@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 
 import { STORAGE_KEY, CATEGORIES, CATEGORY_COLORS, POSITION_PALETTE } from "./constants";
-import { fmtNum, fmtCurrency, calcPnL, calcPnLHuf, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll, uid } from "./utils";
+import { fmtNum, fmtCurrency, calcPnLHuf, calcAvgBuyPrice, calcTotalQty, exportCSV, parseCSV, migrateAll, uid } from "./utils";
 import { refreshAllPrices, fetchYahooPrice, fetchFxRates } from "./services/priceService";
 import { parseXTBFile, getExpectedCurrency, isSupportedExchange } from "./services/xtbImporter";
 import {
