@@ -10,7 +10,7 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
   const fxRates = useMemo(() => {
     try { return JSON.parse(localStorage.getItem("investtrack_fx") || "{}"); } catch { return {}; }
   }, []);
-  const getFx = (currency) => currency === "HUF" ? 1 : (parseFloat(fxRates[currency]) || 1);
+  const getFx = (currency) => currency === "HUF" ? 1 : (parseFloat(fxRates[currency]) || 0);
 
   const blankLot = () => ({ id: uid(), price: "", quantity: "", date: new Date().toISOString().slice(0, 10), notes: "", amount: "" });
   const initLots = initial?.lots?.length > 0
