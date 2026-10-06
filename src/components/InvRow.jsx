@@ -11,9 +11,9 @@ function fmtRelativeTime(isoStr) {
   return new Date(isoStr).toLocaleDateString("hu-HU");
 }
 
-export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete, onRefresh, isRefreshing }) {
+export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, valuationAvailable = true, avgBuyPrice, quantity, up, theme, onDetail, onSell, onEdit, onDelete, onRefresh, isRefreshing }) {
   const [open, setOpen] = useState(false);
-  const unavailableQuote = quoteStatus === "missing" || quoteStatus === "unsupported";
+  const unavailableQuote = quoteStatus === "missing" || quoteStatus === "unsupported" || !valuationAvailable;
   const color = unavailableQuote ? theme.text.tertiary : (up ? theme.accent.green : theme.accent.red);
 
   return (
@@ -37,7 +37,7 @@ export function InvRow({ inv, value, abs, pct, pnlHuf, quoteStatus, avgBuyPrice,
           </div>
         </div>
         <div style={{ fontSize:13, fontWeight:700, color:theme.text.primary, fontFamily:"'DM Mono',monospace", textAlign:"right" }}>
-          {fmtNum(value, 0)}
+          {valuationAvailable ? fmtNum(value, 0) + " Ft" : "—"}
         </div>
         <div style={{ fontSize:13, fontWeight:700, color, fontFamily:"'DM Mono',monospace", textAlign:"right", minWidth:60 }}>
           {unavailableQuote
