@@ -7,7 +7,8 @@ import { THEME as T, glassCard, haptic } from "../design-system";
 export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
   const lots   = inv.lots || [];
   const totalQ = calcTotalQty(lots);
-  const getFxRate = () => inv.currency === "HUF" ? 1 : (parseFloat(fxRates[inv.currency]) || 1);
+  const getFxRate = () => inv.currency === "HUF" ? 1 : (parseFloat(fxRates[inv.currency]) || 0);
+  const hasValidFx = inv.currency === "HUF" || getFxRate() > 0;
 
   const [sellPrice, setSellPrice] = useState(String(inv.currentPrice || ""));
   const [sellQty,   setSellQty]   = useState("");
@@ -65,7 +66,7 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
     return { newLots, fifoHufCost: Math.round(fifoHufCost), fifoCostNative, proceedsNative, proceedsHuf, pnlNative, pnlHuf, pnlPct };
   }, [qty, price, lots, fxRates, inv.currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isValid = qty > 0 && qty <= totalQ && price > 0;
+  const isValid = qty > 0 && qty <= totalQ && price > 0 && hasValidFx;
 
   const inputStyle = {
     width: "100%", background: T.bg.inset, border: `1px solid ${T.border.default}`,
@@ -178,6 +179,12 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
             <label style={labelStyle}>Megjegyzés</label>
             <input style={inputStyle} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Opcionális" />
           </div>
+
+          {!hasValidFx && (
+            <div style={{ padding: "10px 12px", borderRadius: T.radius.md, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.25)", color: T.accent.red, fontSize: 12 }}>
+              ⚠️ Nincs érvényes {inv.currency}/HUF árfolyam. Frissítsd a devizaárfolyamokat az eladás rögzítése előtt.
+            </div>
+          )}
 
           {/* P&L előnézet */}
           {isValid && fifo && (
