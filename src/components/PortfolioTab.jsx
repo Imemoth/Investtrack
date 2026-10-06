@@ -72,6 +72,11 @@ export function PortfolioTab({
 
 // ─── STAT KÁRTYÁK ─────────────────────────────────────────────────────────────
 function StatCards({ theme, stats, investments, closedPositions, refreshLabel }) {
+  const partialSaleCount = investments.reduce(
+    (sum, inv) => sum + (inv.sales || []).filter(s => s.pnlHuf != null).length,
+    0,
+  );
+  const hasRealized = closedPositions.length > 0 || partialSaleCount > 0;
   const cards = [
     { label: "Portfólió értéke",
       val: fmtCurrency(stats.totalValue + stats.pendingTotal, "HUF"),
@@ -86,8 +91,10 @@ function StatCards({ theme, stats, investments, closedPositions, refreshLabel })
       color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red,
       glow: stats.totalPnL >= 0 ? "rgba(110,231,183,0.12)" : "rgba(252,165,165,0.12)" },
     { label: "💰 Realizált P&L",
-      val: closedPositions.length > 0 ? (stats.totalRealizedPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalRealizedPnL, "HUF") : "—",
-      sub: closedPositions.length > 0 ? `${closedPositions.length} lezárt` : "XTB import kell",
+      val: hasRealized ? (stats.totalRealizedPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalRealizedPnL, "HUF") : "—",
+      sub: hasRealized
+        ? [closedPositions.length > 0 ? `${closedPositions.length} lezárt` : "", partialSaleCount > 0 ? `${partialSaleCount} részleges eladás` : ""].filter(Boolean).join(" · ")
+        : "nincs realizált ügylet",
       color: stats.totalRealizedPnL >= 0 ? theme.accent.green : theme.accent.red, glow: null },
     { label: "⏳ Függőben",
       val: stats.pendingTotal > 0 ? fmtCurrency(stats.pendingTotal, "HUF") : "—",
