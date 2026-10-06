@@ -156,10 +156,19 @@ export function lotWithHufTotal(lot, fxRate = 0) {
   if (Number.isFinite(amt) && amt > 0) {
     // Explicit form amount wins.
     hufTotal = amt;
-  } else if (!lot._hufStale && Number.isFinite(existingHufTotal) && existingHufTotal > 0) {
-    // Untouched existing lot: preserve immutable historical cost.
-    hufTotal = existingHufTotal;
-  } else if (Number.isFinite(fxRate) && fxRate > 0 && price > 0 && qty > 0) {
+  } else if (!lot._hufStale) {
+    // Untouched existing lot: preserve/reconstruct historical HUF cost using
+    // the same authoritative priority chain as calcPnLHuf.
+    if (Number.isFinite(existingHufTotal) && existingHufTotal > 0) {
+      hufTotal = existingHufTotal;
+    } else if (Number.isFinite(+lot.hufPerShare) && +lot.hufPerShare > 0 && qty > 0) {
+      hufTotal = +lot.hufPerShare * qty;
+    } else if (Number.isFinite(+lot.impliedFxRate) && +lot.impliedFxRate > 0 && price > 0 && qty > 0) {
+      hufTotal = price * qty * (+lot.impliedFxRate);
+    }
+  }
+
+  if (!hufTotal && Number.isFinite(fxRate) && fxRate > 0 && price > 0 && qty > 0) {
     // New/edited lot may be estimated only when a real FX rate exists.
     hufTotal = Math.round(price * qty * fxRate);
   }
