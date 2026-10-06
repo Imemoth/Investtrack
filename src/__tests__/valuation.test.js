@@ -141,6 +141,18 @@ describe("lotWithHufTotal – no-op edit", () => {
     expect(saved.amount).toBeUndefined();
   });
 
+  it("reconstructs untouched historical HUF cost from hufPerShare before current FX", () => {
+    const lot = { id: "1", price: 100, quantity: 10, hufPerShare: 38000, amount: "" };
+    const saved = lotWithHufTotal(lot, 420);
+    expect(saved.hufTotal).toBe(380000);
+  });
+
+  it("reconstructs untouched historical HUF cost from impliedFxRate before current FX", () => {
+    const lot = { id: "1", price: 100, quantity: 10, impliedFxRate: 380, amount: "" };
+    const saved = lotWithHufTotal(lot, 420);
+    expect(saved.hufTotal).toBe(380000);
+  });
+
   it("does not invent HUF cost for an edited lot when FX is missing", () => {
     const lot = { id: "1", price: 120, quantity: 10, hufTotal: 380000, amount: "", _hufStale: true };
     const saved = lotWithHufTotal(lot, 0);
