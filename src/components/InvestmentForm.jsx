@@ -108,10 +108,22 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
   const handleSave = () => {
     if (!form.name.trim()) { setFormError("Adj meg megnevezést!"); return; }
     const fx = getFx(form.currency);
-    const validLots = lots
-      .filter(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0)
-      .map(l => lotWithHufTotal(l, fx)); // canonical hufTotal saved here
-    if (!validLots.length) { setFormError("Legalább egy érvényes vételi tétel kell!"); return; }
+    const sourceLots = lots.filter(l => parseFloat(l.price) > 0 && parseFloat(l.quantity) > 0);
+    if (!sourceLots.length) { setFormError("Legalább egy érvényes vételi tétel kell!"); return; }
+
+    const hasUnresolvedHufCost = sourceLots.some(l => {
+      const explicitAmount = parseFloat(l.amount);
+      const existingHuf = parseFloat(l.hufTotal);
+      if (Number.isFinite(explicitAmount) && explicitAmount > 0) return false;
+      if (!l._hufStale && Number.isFinite(existingHuf) && existingHuf > 0) return false;
+      return form.currency !== "HUF" && fx <= 0;
+    });
+    if (hasUnresolvedHufCost) {
+      setFormError(`Nincs érvényes ${form.currency}/HUF árfolyam. Adj meg HUF összeget, vagy frissítsd a devizaárfolyamot.`);
+      return;
+    }
+
+    const validLots = sourceLots.map(l => lotWithHufTotal(l, fx)); // canonical hufTotal saved here
     setFormError(null);
     onSave({
       ...form,
