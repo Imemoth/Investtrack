@@ -403,8 +403,11 @@ export default function App() {
     if (user) {
       try {
         if (fullyClose) {
-          await deleteInvestment(updatedInv.id);
+          // Persist the closed history first. If the subsequent delete fails,
+          // the DB may temporarily contain both records, but realized history
+          // is not lost and the operation is safely retryable.
           if (closedPosition) await upsertClosedPositions([closedPosition]);
+          await deleteInvestment(updatedInv.id);
         } else {
           await upsertInvestment(updatedInv);
         }
