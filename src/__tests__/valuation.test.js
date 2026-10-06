@@ -134,15 +134,18 @@ describe("lotWithHufTotal – no-op edit", () => {
     expect(saved.amount).toBeUndefined(); // amount is form-state only
   });
 
-  it("preserves hufTotal when no amount is given (untouched edit)", () => {
+  it("preserves existing hufTotal when no amount is given (untouched edit)", () => {
     const lot = { id: "1", price: 100, quantity: 10, hufTotal: 380000, amount: "" };
-    const saved = lotWithHufTotal(lot, 420); // FX changed but no amount input
-    // Without amount, falls back to price*qty*fx = 100*10*420 = 420000
-    // But if hufTotal was already set AND user didn't change amount, the form
-    // preserves it via the amount init from hufTotal. This test checks the helper.
-    // With empty amount, lotWithHufTotal recomputes from current FX.
-    expect(saved.hufTotal).toBe(100 * 10 * 420); // recomputed (stale case)
+    const saved = lotWithHufTotal(lot, 420); // FX changed but lot was untouched
+    expect(saved.hufTotal).toBe(380000);
     expect(saved.amount).toBeUndefined();
+  });
+
+  it("does not invent HUF cost for an edited lot when FX is missing", () => {
+    const lot = { id: "1", price: 120, quantity: 10, hufTotal: 380000, amount: "", _hufStale: true };
+    const saved = lotWithHufTotal(lot, 0);
+    expect(saved.hufTotal).toBeUndefined();
+    expect(saved._hufStale).toBeUndefined();
   });
 });
 
