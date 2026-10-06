@@ -49,7 +49,7 @@ export async function fetchYahooPrice(ticker) {
   throw lastError;
 }
 
-export async function fetchFxRates() {
+async function fetchFxRatesYahoo() {
   const pairs = ["USDHUF=X", "EURHUF=X", "GBPHUF=X"];
   const rates  = { USD: 1, EUR: 1, GBP: 1, HUF: 1 };
   for (const pair of pairs) {
@@ -57,13 +57,37 @@ export async function fetchFxRates() {
       const data     = await fetchYahooPrice(pair);
       const currency = pair.replace("HUF=X", "");
       rates[currency] = data.price;
-      appLog.info(`✓ ${currency}/HUF = ${data.price}`);
+      appLog.info(`✓ Yahoo FX ${currency}/HUF = ${data.price}`);
     } catch (e) {
-      appLog.warn(`✗ FX lekérés sikertelen: ${pair}`, e.message);
+      appLog.warn(`✗ Yahoo FX sikertelen: ${pair}`, e.message);
     }
     await new Promise(r => setTimeout(r, 300));
   }
   return rates;
+}
+
+export async function fetchFxRates() {
+  try {
+    const res = await fetch(
+      "https://api.frankfurter.dev/v1/latest?base=HUF&symbols=USD,EUR,GBP",
+      { signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const r = data.rates; // { USD: 0.00267, EUR: 0.00247, GBP: 0.00205 }
+    if (!r?.USD) throw new Error("Üres Frankfurter válasz");
+    const rates = {
+      HUF: 1,
+      USD: Math.round(1 / r.USD),
+      EUR: Math.round(1 / r.EUR),
+      GBP: Math.round(1 / r.GBP),
+    };
+    appLog.info(`✓ Frankfurter FX: USD=${rates.USD}, EUR=${rates.EUR}, GBP=${rates.GBP}`);
+    return rates;
+  } catch (e) {
+    appLog.warn(`Frankfurter FX hiba, Yahoo fallback: ${e.message}`);
+    return fetchFxRatesYahoo();
+  }
 }
 
 export async function refreshAllPrices(investments, onProgress) {
