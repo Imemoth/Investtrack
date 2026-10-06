@@ -2,30 +2,33 @@
 // DCA kalkulátor, Adó kalkulátor, Multi-portfólió, P&L összesítő, Push értesítés
 import { useState, useMemo } from "react";
 import { glassCard, haptic, THEME as T } from "../design-system";
-import { fmtNum, fmtCurrency, calcPnL } from "../utils";
+import { fmtNum, fmtCurrency, calcPnL, calcPnLHuf } from "../utils";
 
 // ─── P&L ÖSSZESÍTŐ ────────────────────────────────────────────────────────────
-export function PnLSummary({ investments }) {
+export function PnLSummary({ investments, fxRates = {} }) {
   const data = useMemo(() => {
     const now   = new Date();
     const week  = new Date(now - 7  * 86400000);
     const month = new Date(now - 30 * 86400000);
 
-    // Szimulálunk historikus snapshot-ot a vételárak + dátumok alapján
-    // (valódi historikus adat csak price history-val lenne pontos)
-    const total = investments.reduce((s, i) => s + calcPnL(i).value, 0);
-    const cost  = investments.reduce((s, i) => s + calcPnL(i).cost, 0);
-    const pnl   = total - cost;
+    const rows = investments.map(i => ({ inv: i, p: calcPnLHuf(i, fxRates) }));
+    const valued = rows.filter(r => r.p.valuationAvailable);
+    const total = valued.reduce((sum, r) => sum + r.p.valueHuf, 0);
+    const cost  = valued.reduce((sum, r) => sum + r.p.costHuf, 0);
+    const pnl   = valued.reduce((sum, r) => sum + r.p.pnlHuf, 0);
     const pct   = cost > 0 ? pnl / cost * 100 : 0;
 
-    // Legjobb/legrosszabb nap pozíció alapján
-    const sorted = [...investments]
-      .filter(i => i.currentPrice > 0)
-      .map(i => ({ ...i, ...calcPnL(i) }))
+    const sorted = valued
+      .map(({ inv, p }) => ({ ...inv, pct: p.pnlPct, abs: p.pnlHuf, value: p.valueHuf }))
       .sort((a, b) => b.abs - a.abs);
 
-    return { total, cost, pnl, pct, best: sorted[0], worst: sorted[sorted.length - 1] };
-  }, [investments]);
+    return {
+      total, cost, pnl, pct,
+      valuationComplete: valued.length === investments.length,
+      best: sorted[0],
+      worst: sorted[sorted.length - 1],
+    };
+  }, [investments, fxRates]);
 
   const up = data.pnl >= 0;
 
@@ -55,7 +58,7 @@ export function PnLSummary({ investments }) {
         <Row label="Befektetett tőke"   value={fmtNum(data.cost, 0) + " Ft"} />
         <Row label="Legjobb pozíció"    value={data.best ? `${data.best.ticker||data.best.name}: +${fmtNum(data.best.pct,2)}%` : "—"} color={T.accent.green} />
         <Row label="Leggyengébb pozíció" value={data.worst ? `${data.worst.ticker||data.worst.name}: ${fmtNum(data.worst.pct,2)}%` : "—"} color={T.accent.red} />
-        <Row label="Pozíciók száma"     value={`${investments.length} db`} color={T.text.primary} />
+        <Row label="Pozíciók száma"     value={`${investments.length} db${data.valuationComplete ? "" : " · részleges értékelés"}`} color={T.text.primary} />
       </div>
 
       <div style={{ ...glassCard(T), padding: 14, fontSize: 12, color: T.text.secondary, lineHeight: 1.6 }}>
@@ -160,16 +163,18 @@ export function DCACalculator({ investments }) {
 }
 
 // ─── ADÓ KALKULÁTOR ────────────────────────────────────────────────────────────
-export function TaxCalculator({ investments }) {
+export function TaxCalculator({ investments, fxRates = {} }) {
   const [year, setYear] = useState(new Date().getFullYear().toString());
 
   const calc = useMemo(() => {
     const gains = investments
-      .filter(i => i.currentPrice > 0 && i.buyPrice > 0)
       .map(i => {
-        const { abs, value, cost } = calcPnL(i);
-        return { ...i, gain: abs, value, cost };
-      });
+        const p = calcPnLHuf(i, fxRates);
+        return p.valuationAvailable
+          ? { ...i, gain: p.pnlHuf, value: p.valueHuf, cost: p.costHuf }
+          : null;
+      })
+      .filter(Boolean);
 
     const totalGain  = gains.filter(i => i.gain > 0).reduce((s, i) => s + i.gain, 0);
     const totalLoss  = gains.filter(i => i.gain < 0).reduce((s, i) => s + i.gain, 0);
@@ -182,7 +187,7 @@ export function TaxCalculator({ investments }) {
     const total      = szja + szocho;
 
     return { gains, totalGain, totalLoss: Math.abs(totalLoss), netGain, szja, szocho, total };
-  }, [investments]);
+  }, [investments, fxRates]);
 
   const TaxRow = ({ label, value, sub, color = T.text.primary, big = false }) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border.subtle}` }}>
@@ -198,13 +203,13 @@ export function TaxCalculator({ investments }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Figyelmeztetés */}
       <div style={{ ...glassCard(T), background: "rgba(253,214,138,0.08)", border: `1px solid rgba(253,214,138,0.25)`, padding: 14, fontSize: 12, color: T.text.warning, lineHeight: 1.6 }}>
-        ⚠️ <strong>Tájékoztató jellegű becslés.</strong> A pontos adókötelezettség függ a tartási időtől, devizaárfolyamtól és egyéb tényezőktől. Kérj könyvelői tanácsot!
+        ⚠️ <strong>Szimulált becslés.</strong> Ez a nyitott pozíciók jelenlegi HUF P&L-jét úgy kezeli, mintha most realizálnád; nem tényleges adóbevallási adat. A pontos adókötelezettséghez kérj könyvelői tanácsot!
       </div>
 
       {/* Adóalap */}
       <div style={glassCard(T, { padding: "4px 16px" })}>
-        <TaxRow label="Összes realizált nyereség" value={`+${fmtNum(calc.totalGain, 0)} Ft`} color={T.accent.green} />
-        <TaxRow label="Összes realizált veszteség" value={`-${fmtNum(calc.totalLoss, 0)} Ft`} color={T.accent.red} />
+        <TaxRow label="Pozitív nyitott P&L" value={`+${fmtNum(calc.totalGain, 0)} Ft`} color={T.accent.green} />
+        <TaxRow label="Negatív nyitott P&L" value={`-${fmtNum(calc.totalLoss, 0)} Ft`} color={T.accent.red} />
         <TaxRow label="Nettó adóalap" value={`${fmtNum(calc.netGain, 0)} Ft`} color={T.text.primary} big />
       </div>
 
@@ -253,7 +258,7 @@ export function usePortfolios() {
   return { portfolios, save, remove };
 }
 
-export function MultiPortfolio({ currentInvestments, onSwitch, onClose }) {
+export function MultiPortfolio({ currentInvestments, fxRates = {}, onSwitch, onClose }) {
   const { portfolios, save, remove } = usePortfolios();
   const [newName, setNewName] = useState("");
   const [confirm, setConfirm] = useState(null);
@@ -278,9 +283,12 @@ export function MultiPortfolio({ currentInvestments, onSwitch, onClose }) {
 
       {/* Portfóliók listája */}
       {Object.entries(allPortfolios).map(([name, invs]) => {
-        const total = invs.reduce((s, i) => s + calcPnL(i).value, 0);
-        const cost  = invs.reduce((s, i) => s + calcPnL(i).cost, 0);
+        const rows = invs.map(i => calcPnLHuf(i, fxRates));
+        const valued = rows.filter(p => p.valuationAvailable);
+        const total = valued.reduce((sum, p) => sum + p.valueHuf, 0);
+        const cost  = valued.reduce((sum, p) => sum + p.costHuf, 0);
         const pnl   = cost > 0 ? ((total - cost) / cost * 100) : 0;
+        const complete = valued.length === rows.length;
         const isActive = name === "XTB (aktív)";
         return (
           <div key={name} style={{ ...glassCard(T, { padding: 16 }), border: `1px solid ${isActive ? T.accent.green + "60" : T.border.default}` }}>
@@ -288,7 +296,7 @@ export function MultiPortfolio({ currentInvestments, onSwitch, onClose }) {
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: T.text.primary }}>{name}</div>
                 <div style={{ fontSize: 12, color: T.text.secondary, fontFamily: "'DM Mono',monospace", marginTop: 2 }}>
-                  {invs.length} pozíció · {fmtNum(total, 0)} Ft · <span style={{ color: pnl >= 0 ? T.accent.green : T.accent.red }}>{pnl >= 0 ? "+" : ""}{fmtNum(pnl, 2)}%</span>
+                  {invs.length} pozíció · {fmtNum(total, 0)} Ft{complete ? "" : " · ⚠ részleges"} · <span style={{ color: pnl >= 0 ? T.accent.green : T.accent.red }}>{pnl >= 0 ? "+" : ""}{fmtNum(pnl, 2)}%</span>
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
@@ -415,7 +423,7 @@ export function PushNotificationSetup({ investments, onClose }) {
 }
 
 // ─── UNIFIED FEATURE MODAL ────────────────────────────────────────────────────
-export function FeatureModal({ feature, investments, onClose, onSwitchPortfolio }) {
+export function FeatureModal({ feature, investments, fxRates = {}, onClose, onSwitchPortfolio }) {
   const titles = {
     pnl:   "📅 P&L Összesítő",
     dca:   "📆 DCA Kalkulátor",
@@ -433,10 +441,10 @@ export function FeatureModal({ feature, investments, onClose, onSwitchPortfolio 
           <button onClick={onClose} style={{ background: T.bg.surface, border: `1px solid ${T.border.subtle}`, borderRadius: T.radius.full, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: T.text.secondary, fontSize: 16 }}>×</button>
         </div>
         <div style={{ overflowY: "auto", flex: 1, padding: "16px 16px 32px" }}>
-          {feature === "pnl"   && <PnLSummary investments={investments} />}
+          {feature === "pnl"   && <PnLSummary investments={investments} fxRates={fxRates} />}
           {feature === "dca"   && <DCACalculator investments={investments} />}
-          {feature === "tax"   && <TaxCalculator investments={investments} />}
-          {feature === "multi" && <MultiPortfolio currentInvestments={investments} onSwitch={onSwitchPortfolio} onClose={onClose} />}
+          {feature === "tax"   && <TaxCalculator investments={investments} fxRates={fxRates} />}
+          {feature === "multi" && <MultiPortfolio currentInvestments={investments} fxRates={fxRates} onSwitch={onSwitchPortfolio} onClose={onClose} />}
           {feature === "push"  && <PushNotificationSetup investments={investments} onClose={onClose} />}
         </div>
       </div>
