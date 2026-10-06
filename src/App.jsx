@@ -575,8 +575,16 @@ export default function App() {
       .filter(d => d.value > 0)
       .sort((a, b) => b.value - a.value);
 
-    // Realizált P&L csak HUF-ban összegezhető (XTB mindig HUF-ban adja)
-    const totalRealizedPnL = investments.reduce((s, i) => s + (i.realizedPnL || 0), 0)
+    // Realizált P&L csak HUF-ban összegezhető.
+    // Nyitott pozíciók részleges eladásainál a sales[].pnlHuf a canonical HUF érték.
+    const openRealizedHuf = investments.reduce((sum, inv) => {
+      const salesHuf = (inv.sales || []).reduce(
+        (acc, sale) => acc + (Number.isFinite(+sale.pnlHuf) ? +sale.pnlHuf : 0),
+        0,
+      );
+      return sum + salesHuf;
+    }, 0);
+    const totalRealizedPnL = openRealizedHuf
       + closedPositions.reduce((s, c) => s + (c.pnl || 0), 0);
 
     const totalDividend = investments.reduce((s, i) => {
