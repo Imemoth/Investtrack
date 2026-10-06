@@ -368,7 +368,36 @@ describe("getQuoteStatus unsupported exchange", () => {
   });
 });
 
-// ─── 14. Quote-state Supabase serialization round-trip ───────────────────────
+// ─── 14. Missing FX and unavailable quotes fail closed ───────────────────────
+describe("valuation availability guards", () => {
+  it("foreign-currency valuation is unavailable when FX is missing", () => {
+    const inv = {
+      currency: "PLN", currentPrice: 100,
+      quoteStatus: "fresh",
+      _refreshedAt: new Date().toISOString(),
+      lots: [{ price: 80, quantity: 5, hufTotal: 150000 }],
+    };
+    const r = calcPnLHuf(inv, {});
+    expect(r.hasMissingFx).toBe(true);
+    expect(r.valuationAvailable).toBe(false);
+    expect(r.valueHuf).toBe(0);
+    expect(r.pnlHuf).toBe(0);
+  });
+
+  it("unsupported quote suppresses valuation instead of showing -100%", () => {
+    const inv = {
+      currency: "CHF", currentPrice: 0, quoteStatus: "unsupported",
+      lots: [{ price: 100, quantity: 5, hufTotal: 200000 }],
+    };
+    const r = calcPnLHuf(inv, { CHF: 430 });
+    expect(r.quoteStatus).toBe("unsupported");
+    expect(r.valuationAvailable).toBe(false);
+    expect(r.pnlHuf).toBe(0);
+    expect(r.pnlPct).toBe(0);
+  });
+});
+
+// ─── 15. Quote-state Supabase serialization round-trip ───────────────────────
 describe("quote-state serialization round-trip", () => {
   const BASE = {
     id: "inv-1", name: "ASML", ticker: "ASML.AS", xtbTicker: "ASML.NL",
