@@ -79,10 +79,13 @@ export function calcPnL(inv) {
 export function calcPnLHuf(inv, fxRates = {}) {
   const lots = inv.lots || [];
   const totalQty = calcTotalQty(lots);
-  const fxRate = inv.currency === "HUF" ? 1 : (parseFloat(fxRates[inv.currency]) || 1);
+  const rawFxRate = inv.currency === "HUF" ? 1 : parseFloat(fxRates[inv.currency]);
+  const hasMissingFx = inv.currency !== "HUF" && (!Number.isFinite(rawFxRate) || rawFxRate <= 0);
+  const fxRate = hasMissingFx ? null : rawFxRate;
 
   let costHuf = 0;
   let hasEstimatedCost = false;
+  let hasUnvaluedEstimatedCost = false;
 
   for (const l of lots) {
     const qty = parseFloat(l.quantity) || 0;
@@ -95,18 +98,33 @@ export function calcPnLHuf(inv, fxRates = {}) {
     } else if (l.impliedFxRate != null && l.impliedFxRate > 0) {
       costHuf += (parseFloat(l.price) || 0) * qty * l.impliedFxRate;
     } else {
-      // Nincs historikus HUF adat — aktuális árfolyam becslés (jelölt)
+      // Nincs historikus HUF adat — csak akkor becsülhető, ha van érvényes aktuális FX.
       hasEstimatedCost = true;
-      costHuf += (parseFloat(l.price) || 0) * qty * fxRate;
+      if (fxRate == null) {
+        hasUnvaluedEstimatedCost = true;
+      } else {
+        costHuf += (parseFloat(l.price) || 0) * qty * fxRate;
+      }
     }
   }
 
-  // Aktuális piaci érték HUF-ban
-  const valueHuf = (inv.currentPrice || 0) * totalQty * fxRate;
-  const pnlHuf   = valueHuf - costHuf;
-  const pnlPct   = costHuf > 0 ? (pnlHuf / costHuf) * 100 : 0;
+  // Aktuális piaci érték csak érvényes FX mellett számolható.
+  const valuationAvailable = !hasMissingFx && !hasUnvaluedEstimatedCost;
+  const valueHuf = valuationAvailable ? (inv.currentPrice || 0) * totalQty * fxRate : 0;
+  const pnlHuf   = valuationAvailable ? valueHuf - costHuf : 0;
+  const pnlPct   = valuationAvailable && costHuf > 0 ? (pnlHuf / costHuf) * 100 : 0;
 
-  return { costHuf, valueHuf, pnlHuf, pnlPct, totalQty, fxRate, hasEstimatedCost };
+  return {
+    costHuf,
+    valueHuf,
+    pnlHuf,
+    pnlPct,
+    totalQty,
+    fxRate,
+    hasEstimatedCost,
+    hasMissingFx,
+    valuationAvailable,
+  };
 }
 
 // Árfolyam-frissítés állapota egy pozícióhoz
