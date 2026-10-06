@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { calcPnL, calcPnLHuf, fmtNum } from "../utils";
+import { calcPnLHuf, fmtNum } from "../utils";
 import { CATEGORY_COLORS, POSITION_PALETTE } from "../constants";
 import { fetchOHLCV } from "./StockChart";
 import { THEME as T, glassCard } from "../design-system";
@@ -26,12 +26,13 @@ export function TopMovers({ investments, fxRates = {} }) {
 
   if (!sorted.length) return null;
 
-  const winners = sorted.slice(0, 3);
-  const losers  = [...sorted].reverse().slice(0, 3);
+  const winners = sorted.filter(i => i.pct > 0).slice(0, 3);
+  const losers  = [...sorted].filter(i => i.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 3);
   const MEDALS  = ["🥇","🥈","🥉"];
 
-  const Row = ({ inv, rank, isWinner }) => {
+  const Row = ({ inv, rank }) => {
     const portfolioPct = totalValue > 0 ? (inv.value / totalValue) * 100 : 0;
+    const positive = inv.pct > 0;
     return (
       <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderBottom:`1px solid ${T.border.subtle}` }}>
         <span style={{ fontSize:15, width:22, textAlign:"center", flexShrink:0 }}>{MEDALS[rank]}</span>
@@ -58,7 +59,7 @@ export function TopMovers({ investments, fxRates = {} }) {
 
   const AccordionSection = ({ isWinner, isOpen, toggle }) => {
     const list  = isWinner ? winners : losers;
-    const best  = list[0];
+    if (!list.length) return null;
     const color = isWinner ? T.accent.green : T.accent.red;
     const icon  = isWinner ? "🏆" : "📉";
     // Top 3 összesített érték és portfólió %
@@ -93,7 +94,7 @@ export function TopMovers({ investments, fxRates = {} }) {
         </button>
         {isOpen && (
           <div style={{ padding:"0 14px 10px" }}>
-            {list.map((inv, i) => <Row key={inv.id} inv={inv} rank={i} isWinner={isWinner} />)}
+            {list.map((inv, i) => <Row key={inv.id} inv={inv} rank={i} />)}
           </div>
         )}
       </div>
