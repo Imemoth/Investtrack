@@ -14,6 +14,7 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
   const [sellQty,   setSellQty]   = useState("");
   const [sellDate,  setSellDate]  = useState(new Date().toISOString().slice(0, 10));
   const [notes,     setNotes]     = useState("");
+  const [sellError, setSellError] = useState(null);
 
   const qty   = parseFloat(sellQty) || 0;
   const price = parseFloat(sellPrice) || 0;
@@ -90,6 +91,20 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
     const fullyClose = fifo.newLots.length === 0 || calcTotalQty(fifo.newLots) <= 0;
     const fxRate = getFxRate();
 
+    // Legacy partial sales created before HUF-realized fields existed cannot be
+    // reconstructed exactly for foreign-currency holdings. Refuse a final close
+    // rather than deleting the open record and silently losing realized history.
+    const unreconstructableLegacySale = fullyClose && inv.currency !== "HUF" &&
+      (inv.sales || []).some(s =>
+        !Number.isFinite(+s.pnlHuf) &&
+        !(Number.isFinite(+s.proceedsHuf) && Number.isFinite(+s.fifoHufCost))
+      );
+    if (unreconstructableLegacySale) {
+      setSellError("Korábbi részleges eladás HUF eredménye nem rekonstruálható pontosan. Importáld újra az XTB előzményt vagy javítsd a legacy eladási adatot a teljes zárás előtt.");
+      return;
+    }
+    setSellError(null);
+
     const sale = {
       id:           uid(),
       invId:        inv.id,
@@ -113,16 +128,32 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
     let closedPosition = null;
     if (fullyClose) {
       const allSales = [...(inv.sales || []), sale];
-      const totalVolume = allSales.reduce((sum, s) => sum + (parseFloat(s.quantity) || 0), 0);
-      const totalPurchaseHuf = allSales.reduce((sum, s) => sum + (parseFloat(s.fifoHufCost) || 0), 0);
-      const totalSaleHuf = allSales.reduce((sum, s) => {
-        if (Number.isFinite(+s.proceedsHuf)) return sum + (+s.proceedsHuf);
-        if (Number.isFinite(+s.pnlHuf)) {
-          return sum + (parseFloat(s.fifoHufCost) || 0) + (+s.pnlHuf);
-        }
-        return sum;
-      }, 0);
-      const totalPnlHuf = allSales.reduce((sum, s) => sum + (Number.isFinite(+s.pnlHuf) ? +s.pnlHuf : 0), 0);
+      const saleQty = s => parseFloat(s.quantity ?? s.qty) || 0;
+      const saleCostHuf = s => {
+        if (Number.isFinite(+s.fifoHufCost)) return +s.fifoHufCost;
+        if (inv.currency === "HUF" && Number.isFinite(+s.avgCostBasis)) return (+s.avgCostBasis) * saleQty(s);
+        return null;
+      };
+      const saleProceedsHuf = s => {
+        if (Number.isFinite(+s.proceedsHuf)) return +s.proceedsHuf;
+        if (inv.currency === "HUF" && Number.isFinite(+s.sellPrice)) return (+s.sellPrice) * saleQty(s);
+        const cost = saleCostHuf(s);
+        if (cost != null && Number.isFinite(+s.pnlHuf)) return cost + (+s.pnlHuf);
+        return null;
+      };
+      const salePnlHuf = s => {
+        if (Number.isFinite(+s.pnlHuf)) return +s.pnlHuf;
+        const cost = saleCostHuf(s);
+        const proceeds = saleProceedsHuf(s);
+        if (cost != null && proceeds != null) return proceeds - cost;
+        if (inv.currency === "HUF" && Number.isFinite(+s.realizedPnL)) return +s.realizedPnL;
+        return null;
+      };
+
+      const totalVolume = allSales.reduce((sum, s) => sum + saleQty(s), 0);
+      const totalPurchaseHuf = allSales.reduce((sum, s) => sum + (saleCostHuf(s) ?? 0), 0);
+      const totalSaleHuf = allSales.reduce((sum, s) => sum + (saleProceedsHuf(s) ?? 0), 0);
+      const totalPnlHuf = allSales.reduce((sum, s) => sum + (salePnlHuf(s) ?? 0), 0);
       const totalNativeProceeds = allSales.reduce(
         (sum, s) => sum + (parseFloat(s.sellPrice) || 0) * (parseFloat(s.quantity) || 0),
         0,
@@ -219,6 +250,11 @@ export function SellModal({ inv, onSell, onClose, fxRates = {} }) {
           {!hasValidFx && (
             <div style={{ padding: "10px 12px", borderRadius: T.radius.md, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.25)", color: T.accent.red, fontSize: 12 }}>
               ⚠️ Nincs érvényes {inv.currency}/HUF árfolyam. Frissítsd a devizaárfolyamokat az eladás rögzítése előtt.
+            </div>
+          )}
+          {sellError && (
+            <div style={{ padding: "10px 12px", borderRadius: T.radius.md, background: "rgba(252,165,165,0.08)", border: "1px solid rgba(252,165,165,0.25)", color: T.accent.red, fontSize: 12, lineHeight: 1.5 }}>
+              ⚠️ {sellError}
             </div>
           )}
 
