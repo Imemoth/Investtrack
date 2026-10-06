@@ -1,7 +1,7 @@
 export const STORAGE_KEY = "investtrack_v2"; // v2 - új adatmodell
 
 export const CATEGORIES = ["Részvény", "ETF", "Kötvény", "Kriptó", "Árupiaci", "Ingatlan", "Egyéb"];
-export const CURRENCIES = ["HUF", "EUR", "USD", "GBP"];
+export const CURRENCIES = ["HUF", "EUR", "USD", "GBP", "PLN", "SEK", "DKK", "NOK"];
 
 export const CATEGORY_COLORS = {
   "Részvény": "#6EE7B7",
