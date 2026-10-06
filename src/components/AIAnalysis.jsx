@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { calcPnL, fmtNum } from "../utils";
+import { calcPnLHuf, fmtNum } from "../utils";
 import { appLog } from "../services/logger";
 
-export function AIAnalysis({ investments, onClose }) {
+export function AIAnalysis({ investments, fxRates = {}, onClose }) {
   const [analysis, setAnalysis] = useState(null);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState(null);
@@ -19,15 +19,20 @@ export function AIAnalysis({ investments, onClose }) {
     if (!apiKey.trim()) { setError("Add meg az Anthropic API kulcsot!"); return; }
     setLoading(true); setError(null); setAnalysis(null);
 
-    // ── portfolioContext: ez cache-elődik a szerveren ──
+    // ── portfolioContext: HUF-normalizált és fail-closed valuation ──
+    const valuationRows = investments.map(inv => ({ inv, p: calcPnLHuf(inv, fxRates) }));
+    const valuedRows = valuationRows.filter(r => r.p.valuationAvailable);
+    const totalValueHuf = valuedRows.reduce((sum, r) => sum + r.p.valueHuf, 0);
+    const totalCostHuf = valuedRows.reduce((sum, r) => sum + r.p.costHuf, 0);
     const portfolioContext = [
-      `Összérték: ${fmtNum(investments.reduce((s,i) => s + calcPnL(i).value, 0), 0)} HUF`,
-      `Befektetett: ${fmtNum(investments.reduce((s,i) => s + calcPnL(i).cost, 0), 0)} HUF`,
+      `Összérték (értékelhető pozíciók): ${fmtNum(totalValueHuf, 0)} HUF`,
+      `Befektetett (értékelhető pozíciók): ${fmtNum(totalCostHuf, 0)} HUF`,
+      `Értékelhető pozíciók: ${valuedRows.length}/${investments.length}`,
       `Pozíciók (${investments.length} db):`,
-      ...investments.map(inv => {
-        const { pct, value } = calcPnL(inv);
-        return `  ${inv.ticker||inv.name}: ${fmtNum(value,0)} ${inv.currency}, P&L ${pct>=0?"+":""}${fmtNum(pct,2)}%, ${inv.category}`;
-      }),
+      ...valuationRows.map(({ inv, p }) => p.valuationAvailable
+        ? `  ${inv.ticker||inv.name}: ${fmtNum(p.valueHuf,0)} HUF, P&L ${p.pnlPct>=0?"+":""}${fmtNum(p.pnlPct,2)}%, ${inv.category}`
+        : `  ${inv.ticker||inv.name}: valuation unavailable (quote/FX hiányzik), ${inv.category}`
+      ),
     ].join("\n");
 
     // ── userPrompt: ez változik kérésenként ──
