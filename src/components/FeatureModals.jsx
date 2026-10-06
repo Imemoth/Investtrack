@@ -2,7 +2,7 @@
 // DCA kalkulátor, Adó kalkulátor, Multi-portfólió, P&L összesítő, Push értesítés
 import { useState, useMemo } from "react";
 import { glassCard, haptic, THEME as T } from "../design-system";
-import { fmtNum, fmtCurrency, calcPnL, calcPnLHuf } from "../utils";
+import { fmtNum, fmtCurrency, calcPnLHuf } from "../utils";
 
 // ─── P&L ÖSSZESÍTŐ ────────────────────────────────────────────────────────────
 export function PnLSummary({ investments, fxRates = {} }) {
