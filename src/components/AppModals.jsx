@@ -170,10 +170,10 @@ export function AppModals({
 
       {/* Egyéb */}
       {showTxLog   && <TransactionLog onClose={() => setShowTxLog(false)} />}
-      {showAI      && <AIAnalysis investments={investments} onClose={() => setShowAI(false)} />}
+      {showAI      && <AIAnalysis investments={investments} fxRates={fxRates} onClose={() => setShowAI(false)} />}
       {showLog     && <LogModal onClose={() => setShowLog(false)} />}
       {featureModal && (
-        <FeatureModal feature={featureModal} investments={investments}
+        <FeatureModal feature={featureModal} investments={investments} fxRates={fxRates}
           onClose={() => setFeatureModal(null)}
           onSwitchPortfolio={handleSwitchPortfolio} />
       )}
