@@ -7,14 +7,14 @@ export function DashboardTab({ theme, investments, stats, fxRates, displayCurren
   const cards = [
     { label: "Portfólió értéke",
       val: fmtCurrency(stats.totalValue + stats.pendingTotal, "HUF"),
-      sub: `${investments.length} pozíció · ${stats.pendingTotal > 0 ? `+${fmtNum(stats.pendingTotal,0)} Ft függőben` : "nincs függő"}`,
+      sub: `${investments.length} pozíció${stats.valuationComplete ? "" : " · ⚠ részleges értékelés"} · ${stats.pendingTotal > 0 ? `+${fmtNum(stats.pendingTotal,0)} Ft függőben` : "nincs függő"}`,
       color: theme.text.primary },
     { label: "Befektetett tőke",
       val: fmtCurrency(stats.totalCost, "HUF"),
       sub: "Összes vételár", color: theme.text.secondary },
     { label: "Nyereség / Veszteség",
       val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
-      sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,
+      sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%${stats.valuationComplete ? "" : " · részleges"}`,
       color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red },
     { label: "💰 Éves osztalék",
       val: stats.totalDividend > 0 ? fmtCurrency(stats.totalDividend, "HUF") : "—",
@@ -34,7 +34,7 @@ export function DashboardTab({ theme, investments, stats, fxRates, displayCurren
         ))}
       </div>
 
-      <TopMovers investments={investments} />
+      <TopMovers investments={investments} fxRates={fxRates} />
       <PendingOrders
         fxRates={fxRates}
         displayCurrency={displayCurrency}
@@ -44,9 +44,9 @@ export function DashboardTab({ theme, investments, stats, fxRates, displayCurren
         onConvertOrder={onConvertOrder}
       />
       <PortfolioHistoryChart theme={theme} />
-      <CurrencyExposure investments={investments} />
-      <BenchmarkChart investments={investments} />
-      <RiskReturn investments={investments} />
+      <CurrencyExposure investments={investments} fxRates={fxRates} />
+      <BenchmarkChart investments={investments} fxRates={fxRates} />
+      <RiskReturn investments={investments} fxRates={fxRates} />
     </div>
   );
 }
