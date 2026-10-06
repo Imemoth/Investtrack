@@ -37,13 +37,13 @@ export function InvestmentForm({ initial, onSave, onCancel }) {
   const [lots, setLots] = useState(initLots);
 
   // Recalculate HUF amounts only after an actual currency change.
-  // On initial edit-form mount, preserve the immutable historical hufTotal.
-  const didMountCurrencyRef = useRef(false);
+  // Comparing the previous value also survives React StrictMode's dev effect replay
+  // without touching immutable historical HUF cost on initial mount.
+  const previousCurrencyRef = useRef(form.currency);
   useEffect(() => {
-    if (!didMountCurrencyRef.current) {
-      didMountCurrencyRef.current = true;
-      return;
-    }
+    if (previousCurrencyRef.current === form.currency) return;
+    previousCurrencyRef.current = form.currency;
+
     const fx = getFx(form.currency);
     setLots(ls => ls.map(l => {
       const p = parseFloat(l.price), q = parseFloat(l.quantity);
