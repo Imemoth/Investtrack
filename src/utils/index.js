@@ -109,7 +109,9 @@ export function calcPnLHuf(inv, fxRates = {}) {
   }
 
   // Aktuális piaci érték csak érvényes FX mellett számolható.
-  const valuationAvailable = !hasMissingFx && !hasUnvaluedEstimatedCost;
+  const quoteStatus = getQuoteStatus(inv);
+  const quoteAvailable = quoteStatus !== "missing" && quoteStatus !== "unsupported";
+  const valuationAvailable = !hasMissingFx && !hasUnvaluedEstimatedCost && quoteAvailable;
   const valueHuf = valuationAvailable ? (inv.currentPrice || 0) * totalQty * fxRate : 0;
   const pnlHuf   = valuationAvailable ? valueHuf - costHuf : 0;
   const pnlPct   = valuationAvailable && costHuf > 0 ? (pnlHuf / costHuf) * 100 : 0;
@@ -123,6 +125,7 @@ export function calcPnLHuf(inv, fxRates = {}) {
     fxRate,
     hasEstimatedCost,
     hasMissingFx,
+    quoteStatus,
     valuationAvailable,
   };
 }
