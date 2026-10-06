@@ -43,13 +43,15 @@ export function PortfolioTab({
           ))}
         </div>
         {displayed.map(inv => {
-          const { value, abs, pct, avgBuyPrice, quantity } = calcPnL(inv);
-          const { pnlHuf } = calcPnLHuf(inv, fxRates || {});
+          const { avgBuyPrice, quantity } = calcPnL(inv);
+          const huf = calcPnLHuf(inv, fxRates || {});
           const quoteStatus = getQuoteStatus(inv);
           return (
-            <InvRow key={inv.id} inv={inv} value={value} abs={abs} pct={pct}
-              pnlHuf={pnlHuf} quoteStatus={quoteStatus}
-              avgBuyPrice={avgBuyPrice} quantity={quantity} up={pct>=0} theme={theme}
+            <InvRow key={inv.id} inv={inv}
+              value={huf.valueHuf} abs={huf.pnlHuf} pct={huf.pnlPct}
+              pnlHuf={huf.pnlHuf} quoteStatus={quoteStatus}
+              valuationAvailable={huf.valuationAvailable}
+              avgBuyPrice={avgBuyPrice} quantity={quantity} up={huf.pnlHuf>=0} theme={theme}
               onDetail={() => onDetail(inv)} onSell={() => onSell(inv)}
               onEdit={() => onEdit(inv)} onDelete={() => onDelete(inv)}
               onRefresh={() => onRefreshSingle?.(inv)}
@@ -73,14 +75,14 @@ function StatCards({ theme, stats, investments, closedPositions, refreshLabel })
   const cards = [
     { label: "Portfólió értéke",
       val: fmtCurrency(stats.totalValue + stats.pendingTotal, "HUF"),
-      sub: `${investments.length} pozíció${stats.pendingTotal > 0 ? ` · +${fmtNum(stats.pendingTotal,0)} Ft függőben` : ""}`,
+      sub: `${investments.length} pozíció${stats.valuationComplete ? "" : " · ⚠ részleges értékelés"}${stats.pendingTotal > 0 ? ` · +${fmtNum(stats.pendingTotal,0)} Ft függőben` : ""}`,
       color: theme.text.primary, glow: null },
     { label: "Befektetett tőke",
       val: fmtCurrency(stats.totalCost, "HUF"),
       sub: "Összes vételár", color: theme.text.secondary, glow: null },
     { label: "Papír nyereség",
       val: (stats.totalPnL >= 0 ? "+" : "") + fmtCurrency(stats.totalPnL, "HUF"),
-      sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%`,
+      sub: `${stats.totalPnL >= 0 ? "+" : ""}${fmtNum(stats.totalPct, 2)}%${stats.valuationComplete ? "" : " · részleges"}`,
       color: stats.totalPnL >= 0 ? theme.accent.green : theme.accent.red,
       glow: stats.totalPnL >= 0 ? "rgba(110,231,183,0.12)" : "rgba(252,165,165,0.12)" },
     { label: "💰 Realizált P&L",
