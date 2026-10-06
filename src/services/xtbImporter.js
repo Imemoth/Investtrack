@@ -30,14 +30,23 @@ export function resolveYahooTicker(xtbTicker = "") {
       return base + yahoo;
     }
   }
-  return xtbTicker; // no known suffix → assume US/already resolved
+  return xtbTicker; // no suffix or suffix not in map → pass through as-is
 }
 
 export function getExpectedCurrency(xtbTicker = "") {
   for (const [suffix, { currency }] of Object.entries(EXCHANGE_MAP)) {
     if (xtbTicker.endsWith(suffix)) return currency;
   }
-  return "USD"; // default: US dollar
+  return "USD"; // no suffix / unknown → default to USD
+}
+
+// Returns false for tickers whose exchange suffix is present but not in EXCHANGE_MAP.
+// Tickers without any dot-suffix are treated as US listings (supported).
+export function isSupportedExchange(xtbTicker = "") {
+  const lastDot = xtbTicker.lastIndexOf(".");
+  if (lastDot < 0) return true; // no suffix → US listing, supported
+  const suffix = xtbTicker.slice(lastDot); // e.g. ".NL", ".CH"
+  return suffix in EXCHANGE_MAP;
 }
 
 function getCategory(xtbTicker = "", instrumentName = "", cat = "") {
@@ -120,15 +129,16 @@ export function parseXTBFile(arrayBuffer) {
       if (!hasOpenSheet) {
         if (!ticker && !type) continue;
         if (!openFromCash.has(ticker)) {
+          const supported = isSupportedExchange(ticker);
           openFromCash.set(ticker, {
             id: uid(), name: instrument || ticker,
             ticker: resolveYahooTicker(ticker), xtbTicker: ticker,
             category: getCategory(ticker, instrument),
             currency: getExpectedCurrency(ticker),
             currentPrice: 0,
-            quoteStatus: "missing",
+            quoteStatus: supported ? "missing" : "unsupported",
             realizedPnL: 0, dividends: 0, sales: [], lots: [],
-            notes: `XTB · ${ticker}`,
+            notes: `XTB · ${ticker}${supported ? "" : " · ⚠️ ismeretlen tőzsde"}`,
           });
         }
         const pos = openFromCash.get(ticker);
@@ -220,7 +230,10 @@ export function parseXTBFile(arrayBuffer) {
       const currency  = getExpectedCurrency(ticker);
       const divs      = dividendsByTicker.get(ticker) || 0;
       const curPrice  = currentByTicker.get(ticker) ?? 0;
-      const quoteStatus = curPrice > 0 ? "stale" : "missing";
+      const supported = isSupportedExchange(ticker);
+      const quoteStatus = !supported ? "unsupported"
+                        : curPrice > 0 ? "stale"
+                        : "missing";
 
       openResult.push({
         id: uid(),
@@ -231,7 +244,9 @@ export function parseXTBFile(arrayBuffer) {
         currentPrice: curPrice,
         quoteStatus,
         realizedPnL: 0, sales: [], lots,
-        notes: `XTB · ${ticker}${divs > 0 ? ` · Osztalék: ${divs.toFixed(0)} HUF` : ""}`,
+        notes: `XTB · ${ticker}` +
+               (divs > 0 ? ` · Osztalék: ${divs.toFixed(0)} HUF` : "") +
+               (!supported ? " · ⚠️ ismeretlen tőzsde" : ""),
       });
     }
 

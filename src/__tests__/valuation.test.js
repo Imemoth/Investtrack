@@ -1,8 +1,9 @@
 // Regression tests – valuation correctness hardening
 // Run with: npm test
 import { describe, it, expect } from "vitest";
-import { resolveYahooTicker, getExpectedCurrency, parseXTBFile } from "../services/xtbImporter.js";
+import { resolveYahooTicker, getExpectedCurrency, isSupportedExchange } from "../services/xtbImporter.js";
 import { calcPnLHuf, lotWithHufTotal, getQuoteStatus, calcPnL } from "../utils/index.js";
+import { investmentToDb, dbToInvestment } from "../utils/investmentSerializer.js";
 
 // ─── 1. XTB: missing current price must not become open price ─────────────────
 describe("XTB current price", () => {
@@ -276,5 +277,145 @@ describe("full sell → closed position", () => {
     expect(closedPosition.saleHuf).toBe(150 * 5 * 400);          // 300000
     expect(closedPosition.pnl).toBe(300000 - 200000);            // 100000
     expect(closedPosition.pnlPct).toBeCloseTo(50, 1);            // +50%
+  });
+});
+
+// ─── 11. calcPnLHuf: historical cost priority chain ──────────────────────────
+describe("calcPnLHuf historical cost priority", () => {
+  const fxRates = { USD: 420 };
+
+  it("uses hufPerShare when hufTotal is absent – current FX never applied", () => {
+    const inv = {
+      currency: "USD", currentPrice: 200,
+      lots: [{ price: 100, quantity: 10, hufPerShare: 38000 }], // no hufTotal
+    };
+    const r = calcPnLHuf(inv, fxRates);
+    // Historical cost = 38000 × 10 = 380000 (not 100 × 10 × 420 = 420000)
+    expect(r.costHuf).toBe(380000);
+    expect(r.hasEstimatedCost).toBe(false);
+  });
+
+  it("uses impliedFxRate when hufTotal and hufPerShare are absent", () => {
+    const inv = {
+      currency: "USD", currentPrice: 200,
+      lots: [{ price: 100, quantity: 10, impliedFxRate: 380 }],
+    };
+    const r = calcPnLHuf(inv, fxRates); // current FX is 420 – must not be used
+    expect(r.costHuf).toBe(100 * 10 * 380); // 380000, not 420000
+    expect(r.hasEstimatedCost).toBe(false);
+  });
+
+  it("marks hasEstimatedCost when no historical HUF data; falls back to current FX", () => {
+    const inv = {
+      currency: "USD", currentPrice: 200,
+      lots: [{ price: 100, quantity: 10 }], // v1 migrated lot – no HUF metadata
+    };
+    const r = calcPnLHuf(inv, fxRates);
+    expect(r.hasEstimatedCost).toBe(true);
+    expect(r.costHuf).toBe(100 * 10 * 420); // current FX last resort
+  });
+
+  it("authoritative lots are not contaminated by estimated lots", () => {
+    // Mixed lot array: one has hufTotal, one has nothing
+    const inv = {
+      currency: "USD", currentPrice: 200,
+      lots: [
+        { price: 100, quantity: 5, hufTotal: 190000 },      // authoritative
+        { price: 100, quantity: 5 },                         // estimated
+      ],
+    };
+    const r = calcPnLHuf(inv, fxRates);
+    expect(r.hasEstimatedCost).toBe(true);
+    // First lot: 190000 (hufTotal). Second lot: 100 × 5 × 420 = 210000 (estimated).
+    expect(r.costHuf).toBe(190000 + 100 * 5 * 420);
+  });
+});
+
+// ─── 12. isSupportedExchange – fails closed for unknown suffixes ──────────────
+describe("isSupportedExchange", () => {
+  it("known suffixes are supported", () => {
+    expect(isSupportedExchange("ASML.NL")).toBe(true);
+    expect(isSupportedExchange("VOD.UK")).toBe(true);
+    expect(isSupportedExchange("AAPL.US")).toBe(true);
+    expect(isSupportedExchange("SAP.DE")).toBe(true);
+  });
+
+  it("ticker with no suffix (US listing) is supported", () => {
+    expect(isSupportedExchange("AAPL")).toBe(true);
+    expect(isSupportedExchange("MSFT")).toBe(true);
+  });
+
+  it("unknown exchange suffix fails closed", () => {
+    expect(isSupportedExchange("NOVN.CH")).toBe(false);  // Swiss SIX
+    expect(isSupportedExchange("7203.JP")).toBe(false);  // Tokyo
+    expect(isSupportedExchange("RY.CA")).toBe(false);    // Toronto
+  });
+});
+
+// ─── 13. getQuoteStatus handles unsupported exchange ─────────────────────────
+describe("getQuoteStatus unsupported exchange", () => {
+  it("returns 'unsupported' regardless of currentPrice", () => {
+    expect(getQuoteStatus({ quoteStatus: "unsupported", currentPrice: 0 })).toBe("unsupported");
+    expect(getQuoteStatus({ quoteStatus: "unsupported", currentPrice: 150,
+                            _refreshedAt: new Date().toISOString() })).toBe("unsupported");
+  });
+
+  it("unsupported overrides missing/fresh/stale logic", () => {
+    // Without the quoteStatus field, currentPrice:0 → "missing"
+    expect(getQuoteStatus({ currentPrice: 0 })).toBe("missing");
+    // With it explicitly set to unsupported, stays unsupported
+    expect(getQuoteStatus({ quoteStatus: "unsupported", currentPrice: 0 })).toBe("unsupported");
+  });
+});
+
+// ─── 14. Quote-state Supabase serialization round-trip ───────────────────────
+describe("quote-state serialization round-trip", () => {
+  const BASE = {
+    id: "inv-1", name: "ASML", ticker: "ASML.AS", xtbTicker: "ASML.NL",
+    category: "Részvény", currency: "EUR", currentPrice: 700,
+    realizedPnL: 0, dividendYield: "", targetPrice: "", notes: "",
+    lots: [], sales: [],
+  };
+
+  it("fresh quoteStatus and all quote-state fields survive round-trip", () => {
+    const inv = {
+      ...BASE,
+      quoteStatus: "fresh",
+      _refreshedAt: "2026-10-06T08:00:00.000Z",
+      _nativePrice: 700,
+      _nativeCurrency: "EUR",
+    };
+    const row = investmentToDb(inv, "user-1");
+    const restored = dbToInvestment(row);
+    expect(restored.quoteStatus).toBe("fresh");
+    expect(restored._refreshedAt).toBe("2026-10-06T08:00:00.000Z");
+    expect(restored._nativePrice).toBe(700);
+    expect(restored._nativeCurrency).toBe("EUR");
+    expect(restored.xtbTicker).toBe("ASML.NL");
+    // getQuoteStatus re-evaluates freshness by age; a future test can check stale transition
+  });
+
+  it("missing quoteStatus (currentPrice=0) is correctly re-derived after round-trip", () => {
+    const inv = { ...BASE, currentPrice: 0, quoteStatus: "missing", _refreshedAt: null };
+    const row = investmentToDb(inv, "user-1");
+    const restored = dbToInvestment(row);
+    expect(getQuoteStatus(restored)).toBe("missing");
+  });
+
+  it("unsupported quoteStatus survives round-trip and is re-derived by getQuoteStatus", () => {
+    const inv = { ...BASE, currentPrice: 0, quoteStatus: "unsupported", _refreshedAt: null };
+    const row = investmentToDb(inv, "user-1");
+    const restored = dbToInvestment(row);
+    expect(restored.quoteStatus).toBe("unsupported");
+    expect(getQuoteStatus(restored)).toBe("unsupported");
+  });
+
+  it("round-trip does not lose core investment fields", () => {
+    const inv = { ...BASE, quoteStatus: "stale" };
+    const restored = dbToInvestment(investmentToDb(inv, "user-1"));
+    expect(restored.id).toBe("inv-1");
+    expect(restored.ticker).toBe("ASML.AS");
+    expect(restored.currency).toBe("EUR");
+    expect(restored.currentPrice).toBe(700);
   });
 });
