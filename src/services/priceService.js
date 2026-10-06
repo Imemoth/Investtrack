@@ -89,15 +89,18 @@ async function fetchFxRatesFrankfurter() {
   const data = await res.json();
   const r = data.rates; // { USD: 0.00267, EUR: 0.00247, GBP: 0.00205 }
   if (!r?.USD) throw new Error("Üres Frankfurter válasz");
+  const toHuf = rate => Number.isFinite(rate) && rate > 0
+    ? Math.round((1 / rate) * 10000) / 10000
+    : null;
   return {
     HUF: 1,
-    USD: Math.round(1 / r.USD),
-    EUR: Math.round(1 / r.EUR),
-    GBP: Math.round(1 / r.GBP),
-    PLN: Math.round(1 / r.PLN * 10000) / 10000,
-    SEK: Math.round(1 / r.SEK * 10000) / 10000,
-    DKK: Math.round(1 / r.DKK * 10000) / 10000,
-    NOK: Math.round(1 / r.NOK * 10000) / 10000,
+    USD: toHuf(r.USD),
+    EUR: toHuf(r.EUR),
+    GBP: toHuf(r.GBP),
+    PLN: toHuf(r.PLN),
+    SEK: toHuf(r.SEK),
+    DKK: toHuf(r.DKK),
+    NOK: toHuf(r.NOK),
   };
 }
 
