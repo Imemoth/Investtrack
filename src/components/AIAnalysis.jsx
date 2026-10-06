@@ -24,13 +24,15 @@ export function AIAnalysis({ investments, fxRates = {}, onClose }) {
     const valuedRows = valuationRows.filter(r => r.p.valuationAvailable);
     const totalValueHuf = valuedRows.reduce((sum, r) => sum + r.p.valueHuf, 0);
     const totalCostHuf = valuedRows.reduce((sum, r) => sum + r.p.costHuf, 0);
+    const estimatedCostCount = valuationRows.filter(r => r.p.hasEstimatedCost).length;
     const portfolioContext = [
       `Összérték (értékelhető pozíciók): ${fmtNum(totalValueHuf, 0)} HUF`,
-      `Befektetett (értékelhető pozíciók): ${fmtNum(totalCostHuf, 0)} HUF`,
+      `Befektetett (értékelhető pozíciók): ${fmtNum(totalCostHuf, 0)} HUF${estimatedCostCount ? " (részben becsült)" : ""}`,
       `Értékelhető pozíciók: ${valuedRows.length}/${investments.length}`,
+      `Becsült historical cost basis: ${estimatedCostCount}/${investments.length}`,
       `Pozíciók (${investments.length} db):`,
       ...valuationRows.map(({ inv, p }) => p.valuationAvailable
-        ? `  ${inv.ticker||inv.name}: ${fmtNum(p.valueHuf,0)} HUF, P&L ${p.pnlPct>=0?"+":""}${fmtNum(p.pnlPct,2)}%, ${inv.category}`
+        ? `  ${inv.ticker||inv.name}: ${fmtNum(p.valueHuf,0)} HUF, P&L ${p.hasEstimatedCost ? "≈ " : ""}${p.pnlPct>=0?"+":""}${fmtNum(p.pnlPct,2)}%, ${inv.category}`
         : `  ${inv.ticker||inv.name}: valuation unavailable (quote/FX hiányzik), ${inv.category}`
       ),
     ].join("\n");
