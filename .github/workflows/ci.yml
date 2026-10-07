@@ -13,6 +13,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Use Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate IBKR PoC Python
+        run: |
+          python -m py_compile tools/ibkr_quote_poc/bridge.py tools/ibkr_quote_poc/quote_model.py
+          python -m unittest discover -s tools/ibkr_quote_poc -p "test_*.py"
+
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
