@@ -1,0 +1,92 @@
+[
+  {
+    "key": "ASML",
+    "label": "ASML Holding",
+    "symbol": "ASML",
+    "sec_type": "STK",
+    "currency": "EUR",
+    "exchange": "SMART",
+    "primary_exchange": "AEB"
+  },
+  {
+    "key": "LVMH",
+    "label": "LVMH",
+    "symbol": "MC",
+    "sec_type": "STK",
+    "currency": "EUR",
+    "exchange": "SMART",
+    "primary_exchange": "SBF"
+  },
+  {
+    "key": "VIE",
+    "label": "Veolia Environnement",
+    "symbol": "VIE",
+    "sec_type": "STK",
+    "currency": "EUR",
+    "exchange": "SMART",
+    "primary_exchange": "SBF"
+  },
+  {
+    "key": "AMD",
+    "label": "Advanced Micro Devices",
+    "symbol": "AMD",
+    "sec_type": "STK",
+    "currency": "USD",
+    "exchange": "SMART",
+    "primary_exchange": "NASDAQ"
+  },
+  {
+    "key": "NVDA",
+    "label": "NVIDIA",
+    "symbol": "NVDA",
+    "sec_type": "STK",
+    "currency": "USD",
+    "exchange": "SMART",
+    "primary_exchange": "NASDAQ"
+  },
+  {
+    "key": "CME",
+    "label": "CME Group",
+    "symbol": "CME",
+    "sec_type": "STK",
+    "currency": "USD",
+    "exchange": "SMART",
+    "primary_exchange": "NASDAQ"
+  },
+  {
+    "key": "SPGI",
+    "label": "S&P Global",
+    "symbol": "SPGI",
+    "sec_type": "STK",
+    "currency": "USD",
+    "exchange": "SMART",
+    "primary_exchange": "NYSE"
+  },
+  {
+    "key": "CB",
+    "label": "Chubb",
+    "symbol": "CB",
+    "sec_type": "STK",
+    "currency": "USD",
+    "exchange": "SMART",
+    "primary_exchange": "NYSE"
+  },
+  {
+    "key": "CEG",
+    "label": "Constellation Energy",
+    "symbol": "CEG",
+    "sec_type": "STK",
+    "currency": "USD",
+    "exchange": "SMART",
+    "primary_exchange": "NASDAQ"
+  },
+  {
+    "key": "VST",
+    "label": "Vistra",
+    "symbol": "VST",
+    "sec_type": "STK",
+    "currency": "USD",
+    "exchange": "SMART",
+    "primary_exchange": "NYSE"
+  }
+]
