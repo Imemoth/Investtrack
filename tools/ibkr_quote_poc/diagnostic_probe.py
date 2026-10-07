@@ -72,6 +72,7 @@ def main() -> int:
     parser.add_argument("--primary-exchange", default="AEB")
     parser.add_argument("--market-data-type", type=int, choices=(3, 4), default=3)
     parser.add_argument("--seconds", type=float, default=30.0)
+    parser.add_argument("--startup-wait", type=float, default=2.0)
     args = parser.parse_args()
 
     app = Probe()
@@ -83,6 +84,8 @@ def main() -> int:
         print("API did not become ready within 10 seconds")
         app.disconnect()
         return 2
+
+    time.sleep(args.startup_wait)
 
     contract = Contract()
     contract.symbol = args.symbol.upper()
