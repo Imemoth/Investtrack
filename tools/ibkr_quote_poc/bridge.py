@@ -94,10 +94,13 @@ class IbkrQuoteApp(EWrapper, EClient):
     def error(
         self,
         reqId: int,
+        errorTime: int,
         errorCode: int,
         errorString: str,
         advancedOrderRejectJson: str = "",
     ) -> None:
+        # TWS API 10.33+ added errorTime as the second callback argument.
+        # Keep it in the signature even though this PoC only needs code/message.
         if int(errorCode) in INFO_ERROR_CODES:
             return
         message = f"{errorCode}: {errorString}"
